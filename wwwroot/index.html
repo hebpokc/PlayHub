@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Крестики-нолики · SignalR Online</title>
+    <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+    <canvas id="confetti"></canvas>
+
+    <!-- ======================= ЭКРАН 1: О САЙТЕ + ВВОД ИМЕНИ ======================= -->
+    <section id="screen-join" class="screen active">
+        <div class="card join-card">
+            <div class="logo">
+                <span class="logo-x">✕</span><span class="logo-o">◯</span>
+            </div>
+
+            <h1>Крестики-нолики <span>online</span></h1>
+            <p class="lead">
+                Игра в реальном времени на <b>ASP.NET Core</b> и <b>SignalR</b>.
+                Создавайте комнаты, играйте, делайте ставки на победителя
+                и зарабатывайте монеты за выигрыш.
+            </p>
+
+            <ul class="about">
+                <li><span>1</span> Введите имя и попадёте в лобби со списком комнат.</li>
+                <li><span>2</span> Создайте комнату или войдите в чужую: играть за <b class="x-color">✕</b> / <b class="o-color">◯</b> или наблюдать.</li>
+                <li><span>3</span> Победа приносит <b>100 монет</b>; наблюдатели ставят деньги на игрока и забирают двойную ставку.</li>
+            </ul>
+
+            <form id="join-form" autocomplete="off">
+                <input id="name-input" type="text" maxlength="16" placeholder="Ваше имя" required />
+                <button type="submit" id="join-button" class="btn primary">Войти →</button>
+            </form>
+
+            <!-- Вход как модератор -->
+            <button id="mod-toggle" class="btn ghost wide" type="button">🛡 Войти как модератор</button>
+            <form id="mod-form" autocomplete="off" hidden>
+                <input id="mod-name-input" type="text" maxlength="16" placeholder="Имя (можно любое)" required />
+                <input id="mod-pass-input" type="password" maxlength="32" placeholder="Пароль модератора" required />
+                <button type="submit" id="mod-join-button" class="btn primary">Войти как модератор →</button>
+            </form>
+
+            <p id="join-status" class="status"></p>
+        </div>
+    </section>
+
+    <!-- ============================== ЭКРАН 2: ЛОББИ ============================== -->
+    <section id="screen-lobby" class="screen">
+
+        <header class="topbar">
+            <div class="brand"><span class="logo-x">✕</span><span class="logo-o">◯</span> Tic-Tac-Toe Hub</div>
+            <div class="topbar-info">
+                <span class="chip"><i id="conn-dot" class="dot"></i> <span id="conn-text">подключение…</span></span>
+                <span class="chip">Онлайн: <b id="online-count">0</b></span>
+                <span class="chip">Вы: <b id="my-name">—</b> <b id="my-balance" class="money">💰 0</b></span>
+                <button id="leave-button" class="btn ghost small" type="button">Выйти</button>
+            </div>
+        </header>
+
+        <main class="hub lobby-hub">
+
+            <!-- ЛЕВАЯ КОЛОНКА: комнаты -->
+            <aside class="panel">
+                <h2 class="panel-title">Комнаты</h2>
+                <form id="create-room-form" autocomplete="off">
+                    <input id="room-name-input" type="text" maxlength="24" placeholder="Название комнаты" />
+                    <button id="create-room-button" class="btn primary small" type="submit">+ Создать</button>
+                </form>
+                <ul id="rooms-list" class="rooms"></ul>
+            </aside>
+
+            <!-- ЦЕНТР: чат -->
+            <section class="panel">
+                <h2 class="panel-title">Чат сайта</h2>
+                <div class="chat">
+                    <ul id="chat-list" class="chat-list lobby-chat"></ul>
+                    <form id="chat-form" autocomplete="off">
+                        <input id="chat-input" type="text" maxlength="200" placeholder="Написать сообщение…" />
+                        <button id="chat-send" class="btn primary small" type="submit">↑</button>
+                    </form>
+                </div>
+            </section>
+
+            <!-- ПРАВАЯ КОЛОНКА: люди, лидеры, панель модератора -->
+            <aside class="panel">
+                <h2 class="panel-title">Пользователи онлайн <span id="users-count" class="badge">0</span></h2>
+                <ul id="users-list" class="people"></ul>
+
+                <h2 class="panel-title">Таблица лидеров</h2>
+                <table class="leaders">
+                    <thead>
+                        <tr><th>#</th><th>Имя</th><th>Побед</th><th>Игр</th><th>Очки</th></tr>
+                    </thead>
+                    <tbody id="leaders-body">
+                        <tr><td colspan="5" class="empty">Пока пусто — сыграйте партию!</td></tr>
+                    </tbody>
+                </table>
+
+                <!-- Панель модератора -->
+                <div id="mod-panel" hidden>
+                    <h2 class="panel-title">🛡 Панель модератора</h2>
+                    <p class="hint">Кнопки кика/бана есть у каждого пользователя в списке онлайн.</p>
+                    <form id="unban-form" autocomplete="off">
+                        <input id="unban-input" type="text" maxlength="16" placeholder="Имя для разбана" />
+                        <button id="unban-button" class="btn ghost small" type="submit">Разбанить</button>
+                    </form>
+                    <h2 class="panel-title">Забаненные</h2>
+                    <ul id="banned-list" class="people small"></ul>
+                </div>
+            </aside>
+        </main>
+    </section>
+
+    <!-- ============================== ЭКРАН 3: КОМНАТА ============================== -->
+    <section id="screen-room" class="screen">
+
+        <header class="topbar">
+            <div class="brand">🏠 <span id="room-title">Комната</span></div>
+            <div class="topbar-info">
+                <span class="chip"><i id="room-conn-dot" class="dot"></i> <span id="room-conn-text">подключение…</span></span>
+                <span class="chip">Баланс: <b id="room-my-balance" class="money">💰 0</b></span>
+                <span class="chip">Вы: <b id="room-my-name">—</b></span>
+                <button id="delete-room-button" class="btn ghost small danger" type="button" hidden>🗑 Удалить комнату</button>
+                <button id="exit-room-button" class="btn ghost small" type="button">← В лобби</button>
+            </div>
+        </header>
+
+        <main class="hub">
+
+            <!-- ЛЕВАЯ КОЛОНКА: выбор роли, ставки, матч -->
+            <aside class="panel">
+                <h2 class="panel-title">Выбор стороны</h2>
+                <div class="roles">
+                    <button class="role" data-side="X" type="button">
+                        <span class="role-mark x-color">✕</span>
+                        <span class="role-name">Играть крестиками</span>
+                        <span class="role-status" id="seat-x">свободно</span>
+                    </button>
+                    <button class="role" data-side="O" type="button">
+                        <span class="role-mark o-color">◯</span>
+                        <span class="role-name">Играть ноликами</span>
+                        <span class="role-status" id="seat-o">свободно</span>
+                    </button>
+                    <button class="role" data-side="" type="button">
+                        <span class="role-mark">👁</span>
+                        <span class="role-name">Быть наблюдателем</span>
+                        <span class="role-status" id="seat-spec">смотреть игру</span>
+                    </button>
+                </div>
+
+                <h2 class="panel-title">Ставки наблюдателей</h2>
+                <div id="betting-box" class="betting-box">
+                    <p class="hint" id="bet-hint">Ставка на победу игрока до начала матча. Угадали — ×2, нет — ставка сгорает.</p>
+                    <div class="bet-row">
+                        <button class="bet-side x-bet" id="bet-x" type="button">на ✕</button>
+                        <button class="bet-side o-bet" id="bet-o" type="button">на ◯</button>
+                        <input id="bet-amount" type="number" min="1" step="1" value="50" />
+                    </div>
+                    <ul id="bets-list" class="bets"></ul>
+                </div>
+
+                <h2 class="panel-title">Матч</h2>
+                <div class="match-box">
+                    <p id="match-hint" class="hint">Выберите сторону, чтобы начать.</p>
+                    <button id="ready-button" class="btn primary big" type="button" disabled>Готов / Начать матч</button>
+                    <button id="restart-button" class="btn ghost" type="button" hidden>Играть снова</button>
+                </div>
+            </aside>
+
+            <!-- ЦЕНТР: доска -->
+            <section class="panel board-panel">
+                <div class="players-row">
+                    <div class="player-card" id="card-x">
+                        <span class="player-mark x-color">✕</span>
+                        <span class="player-name" id="name-x">ждём игрока…</span>
+                        <span class="player-ready" id="ready-x"></span>
+                    </div>
+                    <div class="vs">VS</div>
+                    <div class="player-card" id="card-o">
+                        <span class="player-mark o-color">◯</span>
+                        <span class="player-name" id="name-o">ждём игрока…</span>
+                        <span class="player-ready" id="ready-o"></span>
+                    </div>
+                </div>
+
+                <div id="board" class="board">
+                    <button class="cell" data-index="0" type="button"><span></span></button>
+                    <button class="cell" data-index="1" type="button"><span></span></button>
+                    <button class="cell" data-index="2" type="button"><span></span></button>
+                    <button class="cell" data-index="3" type="button"><span></span></button>
+                    <button class="cell" data-index="4" type="button"><span></span></button>
+                    <button class="cell" data-index="5" type="button"><span></span></button>
+                    <button class="cell" data-index="6" type="button"><span></span></button>
+                    <button class="cell" data-index="7" type="button"><span></span></button>
+                    <button class="cell" data-index="8" type="button"><span></span></button>
+                </div>
+
+                <p id="turn-text" class="turn">Ожидание игроков…</p>
+            </section>
+
+            <!-- ПРАВАЯ КОЛОНКА: люди в комнате -->
+            <aside class="panel">
+                <h2 class="panel-title">В игре</h2>
+                <ul id="players-list" class="people"></ul>
+
+                <h2 class="panel-title">Наблюдатели <span id="spec-count" class="badge">0</span></h2>
+                <ul id="spectators-list" class="people small"></ul>
+            </aside>
+        </main>
+    </section>
+
+    <!-- Всплывающие сообщения -->
+    <div id="toast" class="toast"></div>
+
+    <!-- Большой баннер результата -->
+    <div id="banner" class="banner">
+        <div class="banner-card">
+            <h2 id="banner-title">Победа!</h2>
+            <p id="banner-text"></p>
+            <button id="banner-close" class="btn primary" type="button">Продолжить</button>
+        </div>
+    </div>
+
+    <!-- Клиент SignalR с CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@8.0.7/dist/browser/signalr.min.js"></script>
+    <script src="js/site.js"></script>
+</body>
+</html>
