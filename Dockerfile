@@ -27,4 +27,11 @@ RUN dotnet publish "./TicTacToeSignalR.csproj" -c $BUILD_CONFIGURATION -o /app/p
 FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
+
+# App_Data (leaderboard.txt, wallets.txt, banned.txt, chat.txt) должна быть
+# доступна на запись непривилегированному пользователю $APP_UID
+USER root
+RUN mkdir -p /app/App_Data && chown -R $APP_UID:0 /app/App_Data
+USER $APP_UID
+
 ENTRYPOINT ["dotnet", "TicTacToeSignalR.dll"]
