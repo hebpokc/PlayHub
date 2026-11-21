@@ -898,6 +898,244 @@ input[type="text"]:focus {
 #create-room-form input { width: 100%; font-size: 14px; padding: 12px 14px; }
 #create-room-form .btn { justify-self: stretch; padding: 11px; }
 
+/* --------------------- вкладки таблиц лобби ------------------------------ */
+
+.tabs { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+.tab {
+    flex: 1 1 auto;
+    padding: 8px 10px;
+    border-radius: 10px;
+    border: 1px solid var(--panel-border);
+    background: rgba(255,255,255,.04);
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background .2s, color .2s, border-color .2s;
+    white-space: nowrap;
+}
+.tab:hover { background: rgba(255,255,255,.09); }
+.tab.active { background: rgba(124,92,255,.22); border-color: var(--accent); color: var(--text); }
+
+.tab-page[hidden] { display: none; }
+.table-subtitle {
+    margin: 14px 0 8px;
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 600;
+    letter-spacing: .4px;
+}
+.table-subtitle:first-child { margin-top: 0; }
+
+/* --------------------- модалка создания комнаты -------------------------- */
+
+.create-card { width: min(680px, 94vw); max-height: 90vh; overflow-y: auto; }
+
+.game-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 14px;
+    margin: 16px 0 20px;
+}
+.game-card {
+    display: grid;
+    gap: 8px;
+    justify-items: center;
+    padding: 22px 14px;
+    border-radius: 16px;
+    border: 1px solid var(--panel-border);
+    background: rgba(255,255,255,.05);
+    color: var(--text);
+    cursor: pointer;
+    transition: transform .18s ease, border-color .2s, box-shadow .25s, background .2s;
+    transform-style: preserve-3d;
+    will-change: transform;
+}
+.game-card:hover:not(.soon) {
+    border-color: var(--accent);
+    background: rgba(124,92,255,.14);
+    box-shadow: 0 14px 34px rgba(124,92,255,.3);
+}
+.game-card.soon { opacity: .45; cursor: default; }
+.game-icon { font-size: 42px; filter: drop-shadow(0 4px 14px rgba(124,92,255,.45)); }
+.game-name { font-weight: 700; font-size: 15px; }
+.game-desc { font-size: 12px; color: var(--muted); line-height: 1.45; }
+
+#create-settings-form { display: grid; gap: 12px; text-align: left; }
+#create-settings-form[hidden] { display: none; }
+#create-settings-form input[type="text"],
+#create-settings-form input[type="password"] { width: 100%; font-size: 14px; padding: 12px 14px; }
+
+.field-label {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .8px;
+    margin: 6px 0 6px;
+}
+
+.option-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.option {
+    flex: 1 1 auto;
+    padding: 9px 12px;
+    border-radius: 11px;
+    border: 1px solid var(--panel-border);
+    background: rgba(255,255,255,.04);
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background .2s, border-color .2s, color .2s;
+    white-space: nowrap;
+}
+.option:hover { background: rgba(255,255,255,.09); }
+.option.active { background: rgba(124,92,255,.22); border-color: var(--accent); color: var(--text); }
+
+#mine-settings[hidden] { display: none; }
+
+/* ------------------------------ сапёр ------------------------------------ */
+
+.mine-hub { grid-template-columns: 330px minmax(320px, 1fr) 300px; max-width: 1560px; }
+@media (max-width: 1100px) { .mine-hub { grid-template-columns: 1fr; } }
+
+.mine-board-panel {
+    display: grid;
+    gap: 14px;
+    justify-items: center;
+    background: #121834;
+}
+
+.mine-status-row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+#mine-turn-chip[hidden] { display: none; }
+#mine-turn-seconds { color: var(--o); }
+#mine-turn-seconds.urgent { color: var(--danger); animation: pulse 1s infinite; }
+
+.mine-field-wrap { max-width: 100%; overflow: auto; padding: 4px; }
+
+.mine-field {
+    display: grid;
+    gap: 3px;
+    padding: 10px;
+    border-radius: 16px;
+    background: #10162e;
+    border: 1px solid var(--panel-border);
+    box-shadow: 0 14px 34px rgba(0,0,0,.4);
+    user-select: none;
+}
+
+.mcell {
+    width: var(--cell-size, 34px);
+    height: var(--cell-size, 34px);
+    display: grid;
+    place-items: center;
+    border-radius: 7px;
+    border: 1px solid rgba(255,255,255,.07);
+    background: #232c55;
+    color: var(--text);
+    font-size: calc(var(--cell-size, 34px) * .52);
+    font-weight: 800;
+    cursor: pointer;
+    padding: 0;
+    transition: background .15s, transform .1s;
+}
+.mcell:hover:not(:disabled):not(.open) { background: #2d3a6e; transform: scale(1.06); }
+.mcell:disabled { cursor: default; }
+.mcell.open { background: #171e3d; cursor: default; }
+.mcell.flag { background: #2d3a6e; }
+.mcell.mine { background: #3a1f33; }
+.mcell.boom {
+    background: #6b2137;
+    animation: boom .55s cubic-bezier(.2,1.4,.4,1);
+}
+.mcell.placing:hover:not(:disabled) { background: #4a2a5e; }
+
+/* цвета чисел сапёра */
+.mcell.n1 { color: #5aa2ff; }
+.mcell.n2 { color: #3ddc97; }
+.mcell.n3 { color: #ff6b81; }
+.mcell.n4 { color: #b48cff; }
+.mcell.n5 { color: #ffb347; }
+.mcell.n6 { color: #38e1ff; }
+.mcell.n7 { color: #ff9ad5; }
+.mcell.n8 { color: #e8ecff; }
+
+@keyframes boom {
+    0% { transform: scale(.4); box-shadow: 0 0 0 0 rgba(255,107,129,.8); }
+    45% { transform: scale(1.35); box-shadow: 0 0 34px 12px rgba(255,107,129,.65); }
+    100% { transform: scale(1); box-shadow: 0 0 12px 2px rgba(255,107,129,.35); }
+}
+
+/* всплывающие очки за ход */
+.mine-points-pop {
+    position: fixed;
+    z-index: 65;
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--ok);
+    text-shadow: 0 0 14px rgba(61,220,151,.7);
+    pointer-events: none;
+    animation: pointsUp 1.1s ease forwards;
+}
+@keyframes pointsUp {
+    from { opacity: 1; transform: translateY(0) scale(1); }
+    to { opacity: 0; transform: translateY(-56px) scale(1.25); }
+}
+
+.mine-scores { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.mine-score-card {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border-radius: 12px;
+    border: 1px solid var(--panel-border);
+    background: rgba(255,255,255,.05);
+    font-size: 14px;
+    transition: border-color .2s, box-shadow .2s;
+}
+.mine-score-card.turn { border-color: var(--accent); box-shadow: 0 0 16px rgba(124,92,255,.35); }
+.mine-score-card.out { opacity: .5; text-decoration: line-through; }
+.mine-score-card b { color: #ffd76a; }
+
+#mine-ante-row[hidden], #mine-bet-box[hidden] { display: none; }
+#mine-ante-row { display: grid; gap: 6px; }
+#mine-ante-input, #mine-bet-amount { width: 100%; }
+
+#mine-bet-target {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid var(--panel-border);
+    background: #171e3d;
+    color: var(--text);
+    font-size: 14px;
+    outline: none;
+    margin-bottom: 8px;
+}
+
+#mine-bet-box .bet-row { display: flex; gap: 8px; }
+#mine-bet-box .bet-row input { flex: 1 1 auto; min-width: 0; }
+
+/* строки участников сапёра */
+.people li .mrole { font-size: 11px; color: var(--muted); margin-left: auto; }
+.people li.out { opacity: .55; }
+.people li.turn-now { border-color: var(--accent); background: rgba(124,92,255,.14); }
+
+/* бейдж игры в списке комнат */
+.game-tag {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: rgba(124,92,255,.18);
+    border: 1px solid rgba(124,92,255,.4);
+    color: var(--text);
+    font-size: 10px;
+    font-weight: 700;
+    vertical-align: middle;
+}
+
 input[type="password"] {
     padding: 14px 16px;
     border-radius: 12px;

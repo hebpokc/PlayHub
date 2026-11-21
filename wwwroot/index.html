@@ -90,12 +90,8 @@
 
             <!-- ЛЕВАЯ КОЛОНКА: комнаты -->
             <aside class="panel">
-                <h2 class="panel-title">Комнаты · крестики-нолики</h2>
-                <form id="create-room-form" autocomplete="off">
-                    <input id="room-name-input" type="text" maxlength="24" placeholder="Название комнаты" />
-                    <input id="room-password-input" type="password" maxlength="32" placeholder="Пароль (необязательно)" />
-                    <button id="create-room-button" class="btn primary small" type="submit">+ Создать</button>
-                </form>
+                <h2 class="panel-title">Комнаты</h2>
+                <button id="open-create-menu" class="btn primary wide" type="button">+ Создать комнату</button>
                 <ul id="rooms-list" class="rooms"></ul>
             </aside>
 
@@ -116,36 +112,58 @@
                 <h2 class="panel-title">Пользователи онлайн <span id="users-count" class="badge">0</span></h2>
                 <ul id="users-list" class="people"></ul>
 
-                <h2 class="panel-title">Таблица лидеров</h2>
-                <table class="leaders">
-                    <thead>
-                        <tr><th>#</th><th>Имя</th><th>Побед</th><th>Игр</th><th>Очки</th></tr>
-                    </thead>
-                    <tbody id="leaders-body">
-                        <tr><td colspan="5" class="empty">Пока пусто — сыграйте партию!</td></tr>
-                    </tbody>
-                </table>
+                <h2 class="panel-title">Таблицы</h2>
+                <div class="tabs" id="tables-tabs">
+                    <button class="tab active" type="button" data-tab="tab-games">🏅 Игры</button>
+                    <button class="tab" type="button" data-tab="tab-money">💰 Балансы</button>
+                    <button class="tab" type="button" data-tab="tab-mods">🛡 Модераторы</button>
+                </div>
 
-                <h2 class="panel-title">🏆 Работник месяца</h2>
-                <p class="hint" id="employee-of-month">Пока нет действий модерации.</p>
-                <table class="leaders">
-                    <thead>
-                        <tr><th>#</th><th>Модератор</th><th>Баны</th><th>Кики</th><th>Всего</th></tr>
-                    </thead>
-                    <tbody id="mod-stats-body">
-                        <tr><td colspan="5" class="empty">Статистики пока нет.</td></tr>
-                    </tbody>
-                </table>
+                <div id="tab-games" class="tab-page active">
+                    <h3 class="table-subtitle">Крестики-нолики ✕◯</h3>
+                    <table class="leaders">
+                        <thead>
+                            <tr><th>#</th><th>Имя</th><th>Побед</th><th>Игр</th><th>Очки</th></tr>
+                        </thead>
+                        <tbody id="leaders-body">
+                            <tr><td colspan="5" class="empty">Пока пусто — сыграйте партию!</td></tr>
+                        </tbody>
+                    </table>
 
-                <h2 class="panel-title">💰 Балансы пользователей</h2>
-                <table class="leaders">
-                    <thead>
-                        <tr><th>#</th><th>Имя</th><th>Баланс</th></tr>
-                    </thead>
-                    <tbody id="balances-body">
-                        <tr><td colspan="3" class="empty">Пока пусто.</td></tr>
-                    </tbody>
-                </table>
+                    <h3 class="table-subtitle">Рекорды сапёра 💣</h3>
+                    <table class="leaders">
+                        <thead>
+                            <tr><th>#</th><th>Имя</th><th>Поле</th><th>Счёт</th><th>Время</th></tr>
+                        </thead>
+                        <tbody id="mine-records-body">
+                            <tr><td colspan="5" class="empty">Рекордов пока нет.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div id="tab-money" class="tab-page" hidden>
+                    <table class="leaders">
+                        <thead>
+                            <tr><th>#</th><th>Имя</th><th>Баланс</th></tr>
+                        </thead>
+                        <tbody id="balances-body">
+                            <tr><td colspan="3" class="empty">Пока пусто.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div id="tab-mods" class="tab-page" hidden>
+                    <h2 class="panel-title">🏆 Работник месяца</h2>
+                    <p class="hint" id="employee-of-month">Пока нет действий модерации.</p>
+                    <table class="leaders">
+                        <thead>
+                            <tr><th>#</th><th>Модератор</th><th>Баны</th><th>Кики</th><th>Всего</th></tr>
+                        </thead>
+                        <tbody id="mod-stats-body">
+                            <tr><td colspan="5" class="empty">Статистики пока нет.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
 
                 <!-- Панель модератора -->
                 <div id="mod-panel" hidden>
@@ -267,8 +285,151 @@
         </main>
     </section>
 
+    <!-- ============================== ЭКРАН 4: САПЁР ============================== -->
+    <section id="screen-mine" class="screen">
+
+        <header class="topbar">
+            <div class="brand">💣 <span id="mine-room-title">Сапёр</span></div>
+            <div class="topbar-info">
+                <span class="chip"><i id="mine-conn-dot" class="dot"></i> <span id="mine-conn-text">подключение…</span></span>
+                <span class="chip">Баланс: <b id="mine-my-balance" class="money">💰 0</b></span>
+                <span class="chip">Вы: <b id="mine-my-name">—</b></span>
+                <button id="mine-delete-room" class="btn ghost small danger" type="button" hidden>🗑 Удалить комнату</button>
+                <button id="mine-exit-room" class="btn ghost small" type="button">← В лобби</button>
+            </div>
+        </header>
+
+        <main class="hub mine-hub">
+
+            <!-- ЛЕВАЯ КОЛОНКА: участие, ставки, управление -->
+            <aside class="panel">
+                <h2 class="panel-title">Партия</h2>
+                <p class="hint" id="mine-mode-hint">Режим и сложность</p>
+
+                <div class="match-box">
+                    <button id="mine-join-button" class="btn primary big" type="button">🎮 Сесть играть</button>
+                    <button id="mine-leave-button" class="btn ghost" type="button" hidden>👁 Стать наблюдателем</button>
+
+                    <div id="mine-ante-row" hidden>
+                        <label class="field-label" for="mine-ante-input">Ваша ставка (ante, мин. 10)</label>
+                        <input id="mine-ante-input" type="number" min="10" step="1" value="10" />
+                    </div>
+
+                    <button id="mine-ready-button" class="btn primary big" type="button" hidden>Готов / Начать</button>
+                    <button id="mine-place-done" class="btn primary big" type="button" hidden>✅ Мины расставлены</button>
+                    <button id="mine-surrender-button" class="btn ghost danger" type="button" hidden>🏳 Сдаться</button>
+                    <button id="mine-restart-button" class="btn primary big" type="button" hidden>Играть снова</button>
+                </div>
+
+                <h2 class="panel-title">💰 Банк партии</h2>
+                <p class="hint" id="mine-bank-hint">Ставок нет.</p>
+                <ul id="mine-bets-list" class="bets"></ul>
+
+                <div id="mine-bet-box" hidden>
+                    <h2 class="panel-title">Ставка наблюдателя</h2>
+                    <select id="mine-bet-target"></select>
+                    <div class="bet-row">
+                        <input id="mine-bet-amount" type="number" min="10" step="1" value="10" />
+                        <button id="mine-bet-button" class="btn primary small" type="button">Поставить</button>
+                    </div>
+                </div>
+
+                <h2 class="panel-title">🏅 Мой рекорд</h2>
+                <p class="hint" id="mine-my-record">Сыграйте партию, чтобы установить рекорд.</p>
+            </aside>
+
+            <!-- ЦЕНТР: поле -->
+            <section class="panel mine-board-panel">
+                <div class="mine-status-row">
+                    <span class="chip">💣 Мин: <b id="mine-flags-left">0</b></span>
+                    <span class="chip">⏱ <b id="mine-timer">0:00</b></span>
+                    <span class="chip" id="mine-turn-chip" hidden>Ход: <b id="mine-turn-name">—</b> <b id="mine-turn-seconds"></b></span>
+                </div>
+
+                <div id="mine-field-wrap" class="mine-field-wrap">
+                    <div id="mine-field" class="mine-field"></div>
+                </div>
+
+                <p id="mine-status-text" class="turn">Ожидание игроков…</p>
+                <div id="mine-scores" class="mine-scores"></div>
+            </section>
+
+            <!-- ПРАВАЯ КОЛОНКА: участники -->
+            <aside class="panel">
+                <h2 class="panel-title">Игроки</h2>
+                <ul id="mine-players-list" class="people"></ul>
+
+                <h2 class="panel-title">Наблюдатели <span id="mine-spec-count" class="badge">0</span></h2>
+                <ul id="mine-spec-list" class="people small"></ul>
+            </aside>
+        </main>
+    </section>
+
     <!-- Всплывающие сообщения -->
     <div id="toast" class="toast"></div>
+
+    <!-- ============ Модалка создания комнаты: выбор игры ============ -->
+    <div id="create-menu" class="banner">
+        <div class="banner-card create-card">
+            <h2>Новая комната</h2>
+
+            <!-- шаг 1: карточки игр -->
+            <div id="create-step-games">
+                <p class="hint">Выберите игру</p>
+                <div class="game-cards">
+                    <button class="game-card" type="button" data-game="tictactoe">
+                        <span class="game-icon">🎮</span>
+                        <span class="game-name">Крестики-нолики</span>
+                        <span class="game-desc">Классика 3×3: два игрока, ставки наблюдателей</span>
+                    </button>
+                    <button class="game-card" type="button" data-game="minesweeper">
+                        <span class="game-icon">💣</span>
+                        <span class="game-name">Сапёр</span>
+                        <span class="game-desc">Разминируй поле или взорви противника</span>
+                    </button>
+                    <div class="game-card soon">
+                        <span class="game-icon">🎲</span>
+                        <span class="game-name">Скоро</span>
+                        <span class="game-desc">Место под будущие игры</span>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button id="create-cancel" class="btn ghost" type="button">Отмена</button>
+                </div>
+            </div>
+
+            <!-- шаг 2: настройки -->
+            <form id="create-settings-form" autocomplete="off" hidden>
+                <p class="hint" id="create-game-title">Настройки игры</p>
+
+                <input id="create-room-name" type="text" maxlength="24" placeholder="Название комнаты" />
+                <input id="create-room-password" type="password" maxlength="32" placeholder="Пароль (необязательно)" />
+
+                <div id="mine-settings" hidden>
+                    <label class="field-label">Режим</label>
+                    <div class="option-row" id="mine-mode-options">
+                        <button class="option active" type="button" data-mode="solo">👤 Одиночка</button>
+                        <button class="option" type="button" data-mode="pvp">⚔ PvP</button>
+                        <button class="option" type="button" data-mode="asym">💣 vs 🚩</button>
+                        <button class="option" type="button" data-mode="cinema">🎬 Кинотеатр</button>
+                    </div>
+                    <p class="hint" id="mine-mode-desc">Один игрок, остальные смотрят. Цель — максимум очков до подрыва.</p>
+
+                    <label class="field-label">Сложность</label>
+                    <div class="option-row" id="mine-diff-options">
+                        <button class="option active" type="button" data-diff="easy">Лёгкая · 9×9 · 10💣</button>
+                        <button class="option" type="button" data-diff="medium">Средняя · 16×16 · 40💣</button>
+                        <button class="option" type="button" data-diff="hard">Тяжёлая · 30×16 · 99💣</button>
+                    </div>
+                </div>
+
+                <div class="modal-actions">
+                    <button id="create-back" class="btn ghost" type="button">← Назад</button>
+                    <button id="create-submit" class="btn primary" type="submit">Создать комнату</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <!-- Модалка пароля комнаты -->
     <div id="room-password-modal" class="banner">

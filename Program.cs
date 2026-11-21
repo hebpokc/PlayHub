@@ -12,6 +12,8 @@ builder.Services.AddSingleton<LeaderboardService>();
 builder.Services.AddSingleton<WalletService>();
 builder.Services.AddSingleton<ModerationService>();
 builder.Services.AddSingleton<ChatService>();
+builder.Services.AddSingleton<MineRecordService>();
+builder.Services.AddSingleton<MinesweeperService>();
 builder.Services.AddSingleton<LobbyService>();
 
 var app = builder.Build();
@@ -35,6 +37,45 @@ lobby.RoomRemoved += async (room, reason) =>
 };
 
 app.MapHub<GameHub>("/hubs/game");
+
+// Таймер сапёра: раз в секунду проверяем дедлайны ходов и расстановки мин.
+// Если состояние изменилось — рассылаем персональные снимки участникам.
+var mineTimer = new Timer(async _ =>
+{
+    try
+    {
+        foreach (var room in lobby.TickMines())
+        {
+            var members = lobby.Players.Values.Where(p => p.CurrentRoomId == room.Id).ToList();
+            foreach (var member in members)
+            {
+                await hubContext.Clients.Client(member.ConnectionId)
+                    .SendAsync("MineRoomUpdated", lobby.GetMineSnapshot(member.ConnectionId));
+            }
+
+            var g = room.Mine!;
+            if (g.IsFinished)
+            {
+                await hubContext.Clients.Group($"room-{room.Id}").SendAsync("MineGameFinished", new
+                {
+                    winnerId = g.WinnerId,
+                    winnerName = g.WinnerName,
+                    isDraw = g.IsDraw,
+                    payout = g.WinnerPayout,
+                    explodedIndex = g.ExplodedIndex
+                });
+                await hubContext.Clients.All.SendAsync("ChatMessage", chat.AddSystem(g.IsDraw
+                    ? "Сапёр: ничья по таймеру 🤝 — ставки возвращены"
+                    : $"Сапёр: {g.WinnerName} побеждает! 🎉"));
+                await hubContext.Clients.All.SendAsync("LobbyUpdated", lobby.GetLobbySnapshot());
+            }
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Ошибка таймера сапёра: {ex.Message}");
+    }
+}, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
 
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok", hub = "PlayHub" }));
 

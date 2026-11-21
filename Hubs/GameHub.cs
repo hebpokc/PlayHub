@@ -14,13 +14,15 @@ public class GameHub : Hub
     private readonly ChatService _chat;
     private readonly WalletService _wallets;
     private readonly ModerationService _moderation;
+    private readonly MinesweeperService _mines;
 
-    public GameHub(LobbyService lobby, ChatService chat, WalletService wallets, ModerationService moderation)
+    public GameHub(LobbyService lobby, ChatService chat, WalletService wallets, ModerationService moderation, MinesweeperService mines)
     {
         _lobby = lobby;
         _chat = chat;
         _wallets = wallets;
         _moderation = moderation;
+        _mines = mines;
     }
 
     /// <summary>Шаг 1. Вход по имени. Модератор указывает доп. пароль.</summary>
@@ -68,6 +70,19 @@ public class GameHub : Hub
         var room = _lobby.CreateRoom(Context.ConnectionId, roomName ?? "", password);
         await Groups.AddToGroupAsync(Context.ConnectionId, RoomGroup(room.Id));
         await SendSystemMessage($"{_lobby.GetName(Context.ConnectionId)} создал комнату «{room.Name}»" +
+            (room.Password != "" ? " 🔒" : ""));
+        await BroadcastLobby();
+        await BroadcastRoom(room.Id);
+        await SendRoomToCaller();
+    }
+
+    /// <summary>Создать комнату сапёра: режим, сложность, ante.</summary>
+    public async Task CreateMineRoom(string? roomName, string? password, string? mode, string? difficulty, int ante)
+    {
+        var room = _lobby.CreateMineRoom(Context.ConnectionId, roomName ?? "", password,
+            mode ?? "solo", difficulty ?? "easy", ante);
+        await Groups.AddToGroupAsync(Context.ConnectionId, RoomGroup(room.Id));
+        await SendSystemMessage($"{_lobby.GetName(Context.ConnectionId)} создал комнату сапёра «{room.Name}» 💣" +
             (room.Password != "" ? " 🔒" : ""));
         await BroadcastLobby();
         await BroadcastRoom(room.Id);
@@ -158,7 +173,7 @@ public class GameHub : Hub
         if (player == null) return;
 
         var room = _lobby.GetRoomOf(player);
-        if (room == null) return;
+        if (room == null || room.GameType != "tictactoe") return;
 
         if (player.Side == "X" || player.Side == "O") player.IsReady = ready;
 
@@ -230,7 +245,7 @@ public class GameHub : Hub
     {
         var player = _lobby.GetPlayer(Context.ConnectionId);
         var room = player == null ? null : _lobby.GetRoomOf(player);
-        if (room == null) return;
+        if (room == null || room.GameType != "tictactoe") return;
 
         _lobby.Restart(room);
         await RoomClients(room).SendAsync("GameRestarted");
@@ -259,6 +274,239 @@ public class GameHub : Hub
             await SendSystemMessage($"{player.Name} поставил {amount} монет на {(side == "X" ? "✕" : "◯")}");
             await BroadcastRoom(room.Id);
         }
+    }
+
+    // ------------------------------------------------------------- сапёр
+
+    /// <summary>Занять место игрока в сапёре.</summary>
+    public async Task MineJoin()
+    {
+        var (player, room, error) = RequireMineRoom();
+        if (error != "") { await Clients.Caller.SendAsync("ServerError", error); return; }
+
+        var result = _mines.JoinGame(room!, player!);
+        if (result != "ok") { await Clients.Caller.SendAsync("ServerError", result); return; }
+
+        await SendSystemMessage($"{player!.Name} садится играть в сапёр 💣");
+        await BroadcastRoom(room!.Id);
+        await BroadcastLobby();
+    }
+
+    /// <summary>Покинуть место игрока (стать наблюдателем).</summary>
+    public async Task MineLeave()
+    {
+        var (player, room, error) = RequireMineRoom();
+        if (error != "") { await Clients.Caller.SendAsync("ServerError", error); return; }
+
+        _mines.LeaveGame(room!, player!.ConnectionId);
+        await BroadcastRoom(room!.Id);
+        await BroadcastLobby();
+        await RefreshBalances(room!);
+    }
+
+    /// <summary>«Готов» + внесение ante.</summary>
+    public async Task MineReady(int ante)
+    {
+        var (player, room, error) = RequireMineRoom();
+        if (error != "") { await Clients.Caller.SendAsync("ServerError", error); return; }
+
+        var (result, started) = _mines.SetReady(room!, player!.ConnectionId, ante);
+        if (result != "ok") { await Clients.Caller.SendAsync("ServerError", result); return; }
+
+        await Clients.Caller.SendAsync("BalanceUpdated", _wallets.GetBalance(player.Name));
+
+        if (started)
+        {
+            await RoomClients(room!).SendAsync("MineMatchStarted");
+            var g = room!.Mine!;
+            await SendSystemMessage(g.IsPlacing
+                ? $"Сапёр: {_lobby.GetName(g.TurnId)} расставляет мины ({g.MineCount} шт, 60 секунд)"
+                : "Сапёр: партия началась! Первый ход всегда безопасный 💣");
+        }
+        else
+        {
+            await SendSystemMessage($"{player.Name} готов к партии в сапёр");
+        }
+
+        await BroadcastRoom(room!.Id);
+        await BroadcastLobby();
+    }
+
+    /// <summary>Открыть клетку (левый клик).</summary>
+    public async Task MineOpen(int index)
+    {
+        var (player, room, error) = RequireMineRoom();
+        if (error != "") { await Clients.Caller.SendAsync("ServerError", error); return; }
+
+        var (result, points, exploded) = _mines.Open(room!, player!.ConnectionId, index);
+        if (result != MineActionResult.Ok)
+        {
+            await Clients.Caller.SendAsync("ServerError", MineErrorText(result));
+            return;
+        }
+
+        if (exploded)
+            await RoomClients(room!).SendAsync("MineExploded", new { index, name = player.Name });
+        else if (points > 0)
+            await Clients.Caller.SendAsync("MinePoints", new { points });
+
+        await BroadcastRoom(room!.Id);
+        await AfterMineAction(room!);
+    }
+
+    /// <summary>Флажок (правый клик).</summary>
+    public async Task MineFlag(int index)
+    {
+        var (player, room, error) = RequireMineRoom();
+        if (error != "") { await Clients.Caller.SendAsync("ServerError", error); return; }
+
+        var result = _mines.ToggleFlag(room!, player!.ConnectionId, index);
+        if (result != MineActionResult.Ok)
+        {
+            await Clients.Caller.SendAsync("ServerError", MineErrorText(result));
+            return;
+        }
+
+        await BroadcastRoom(room!.Id);
+        await AfterMineAction(room!);
+    }
+
+    /// <summary>Асим: террорист ставит/снимает мину.</summary>
+    public async Task MinePlace(int index)
+    {
+        var (player, room, error) = RequireMineRoom();
+        if (error != "") { await Clients.Caller.SendAsync("ServerError", error); return; }
+
+        var result = _mines.PlaceMine(room!, player!.ConnectionId, index);
+        if (result != MineActionResult.Ok)
+        {
+            await Clients.Caller.SendAsync("ServerError",
+                result == MineActionResult.BadIndex ? "Лимит мин исчерпан или неверная клетка." : MineErrorText(result));
+            return;
+        }
+        await BroadcastRoom(room!.Id);
+    }
+
+    /// <summary>Асим: террорист завершил расстановку.</summary>
+    public async Task MineFinishPlacing()
+    {
+        var (player, room, error) = RequireMineRoom();
+        if (error != "") { await Clients.Caller.SendAsync("ServerError", error); return; }
+
+        if (!_mines.FinishPlacing(room!, player!.ConnectionId))
+        {
+            await Clients.Caller.SendAsync("ServerError", $"Расставьте все мины ({room!.Mine!.MineCount} шт).");
+            return;
+        }
+        await SendSystemMessage("Мины расставлены — сапёр начинает разминирование!");
+        await BroadcastRoom(room!.Id);
+    }
+
+    /// <summary>Сдаться.</summary>
+    public async Task MineSurrender()
+    {
+        var (player, room, error) = RequireMineRoom();
+        if (error != "") { await Clients.Caller.SendAsync("ServerError", error); return; }
+
+        if (!_mines.Surrender(room!, player!.ConnectionId))
+        {
+            await Clients.Caller.SendAsync("ServerError", "Сдаться можно только во время партии.");
+            return;
+        }
+        await SendSystemMessage($"{player!.Name} сдался 🏳");
+        await BroadcastRoom(room!.Id);
+        await AfterMineAction(room!);
+    }
+
+    /// <summary>Новая партия в сапёре (только после окончания текущей).</summary>
+    public async Task MineRestart()
+    {
+        var (_, room, error) = RequireMineRoom();
+        if (error != "") { await Clients.Caller.SendAsync("ServerError", error); return; }
+        if (!room!.Mine!.IsFinished)
+        {
+            await Clients.Caller.SendAsync("ServerError", "Новую партию можно начать после окончания текущей.");
+            return;
+        }
+
+        _mines.Restart(room!);
+        await RoomClients(room!).SendAsync("MineGameRestarted");
+        await SendSystemMessage("Сапёр: новая партия — внесите ставку и нажмите «Готов»");
+        await BroadcastRoom(room!.Id);
+        await BroadcastLobby();
+    }
+
+    /// <summary>Ставка наблюдателя на игрока (targetId = ConnectionId).</summary>
+    public async Task MineBet(string? targetId, int amount)
+    {
+        var (player, room, error) = RequireMineRoom();
+        if (error != "") { await Clients.Caller.SendAsync("ServerError", error); return; }
+
+        var result = _mines.PlaceBet(room!, player!, targetId ?? "", amount, out var newBalance);
+        if (result != "ok") { await Clients.Caller.SendAsync("ServerError", result); return; }
+
+        await Clients.Caller.SendAsync("BalanceUpdated", newBalance);
+        await SendSystemMessage($"{player!.Name} поставил {amount} монет на {_lobby.GetName(targetId ?? "")}");
+        await BroadcastRoom(room!.Id);
+        await BroadcastLobby();
+    }
+
+    /// <summary>Таблица рекордов одиночного сапёра — видна всем.</summary>
+    public Task<List<MineRecordDto>> GetMineRecords() => Task.FromResult(_mines.GetRecordsTop());
+
+    private (Player? Player, Room? Room, string Error) RequireMineRoom()
+    {
+        var player = _lobby.GetPlayer(Context.ConnectionId);
+        if (player == null) return (null, null, "Сначала войдите на сайт.");
+        var room = _lobby.GetRoomOf(player);
+        if (room == null) return (null, null, "Сначала войдите в комнату.");
+        if (room.GameType != "minesweeper") return (null, null, "Эта комната — не сапёр.");
+        return (player, room, "");
+    }
+
+    private static string MineErrorText(MineActionResult r) => r switch
+    {
+        MineActionResult.NotParticipant => "Вы не игрок в этой партии (или уже выбыли).",
+        MineActionResult.NotStarted => "Партия ещё не началась.",
+        MineActionResult.Finished => "Партия уже закончилась.",
+        MineActionResult.NotYourTurn => "Сейчас не ваш ход.",
+        MineActionResult.BadIndex => "Неверная клетка.",
+        MineActionResult.AlreadyOpened => "Клетка уже открыта.",
+        MineActionResult.IsFlagged => "Сначала снимите флажок.",
+        MineActionResult.PlacingPhase => "Идёт расстановка мин.",
+        MineActionResult.NotPlacingPhase => "Сейчас не фаза расстановки.",
+        _ => "Действие недоступно."
+    };
+
+    /// <summary>После хода: если партия закончилась — событие и обновление балансов.</summary>
+    private async Task AfterMineAction(Room room)
+    {
+        var g = room.Mine!;
+        if (!g.IsFinished) return;
+
+        await RoomClients(room).SendAsync("MineGameFinished", new
+        {
+            winnerId = g.WinnerId,
+            winnerName = g.WinnerName,
+            isDraw = g.IsDraw,
+            payout = g.WinnerPayout,
+            explodedIndex = g.ExplodedIndex
+        });
+
+        await SendSystemMessage(g.IsDraw
+            ? "Сапёр: ничья 🤝 — ставки возвращены"
+            : g.WinnerPayout > 0
+                ? $"Сапёр: {g.WinnerName} побеждает! 🎉 +{g.WinnerPayout} монет из банка"
+                : $"Сапёр: партия окончена, победитель — {g.WinnerName}");
+
+        await RefreshBalances(room);
+        await BroadcastLobby();
+    }
+
+    private async Task RefreshBalances(Room room)
+    {
+        foreach (var p in _lobby.Players.Values.Where(p => p.CurrentRoomId == room.Id))
+            await Clients.Client(p.ConnectionId).SendAsync("BalanceUpdated", _wallets.GetBalance(p.Name));
     }
 
     // ------------------------------------------------------------- модерация
@@ -374,6 +622,14 @@ public class GameHub : Hub
             await Clients.Caller.SendAsync("ServerError", "Комната не найдена.");
             return;
         }
+
+        // возвраты ante/ставок при удалении комнаты сапёра могли задеть
+        // любого пользователя (в т.ч. ставочника из другой комнаты) — обновляем всем
+        if (removed.GameType == "minesweeper")
+        {
+            foreach (var p in _lobby.Players.Values)
+                await Clients.Client(p.ConnectionId).SendAsync("BalanceUpdated", _wallets.GetBalance(p.Name));
+        }
     }
 
     private bool RequireModerator(out string error)
@@ -443,13 +699,29 @@ public class GameHub : Hub
 
     private async Task SendRoomToCaller()
     {
-        await Clients.Caller.SendAsync("RoomUpdated", _lobby.GetRoomSnapshot(Context.ConnectionId));
+        var player = _lobby.GetPlayer(Context.ConnectionId);
+        var room = player == null ? null : _lobby.GetRoomOf(player);
+        if (room is { GameType: "minesweeper" })
+            await Clients.Caller.SendAsync("MineRoomUpdated", _lobby.GetMineSnapshot(Context.ConnectionId));
+        else
+            await Clients.Caller.SendAsync("RoomUpdated", _lobby.GetRoomSnapshot(Context.ConnectionId));
     }
 
     private async Task BroadcastRoom(string roomId)
     {
         var group = RoomGroup(roomId);
         var members = _lobby.Players.Values.Where(p => p.CurrentRoomId == roomId).ToList();
+        var room = _lobby.Rooms.GetValueOrDefault(roomId);
+
+        if (room is { GameType: "minesweeper" })
+        {
+            // снимок сапёра персональный: террорист видит свои мины
+            foreach (var member in members)
+                await Clients.Client(member.ConnectionId).SendAsync("MineRoomUpdated",
+                    _lobby.GetMineSnapshot(member.ConnectionId));
+            return;
+        }
+
         foreach (var member in members)
         {
             await Clients.Client(member.ConnectionId).SendAsync("RoomUpdated",

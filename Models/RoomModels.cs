@@ -14,8 +14,14 @@ public class Room
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
-    /// <summary>Партия внутри комнаты.</summary>
+    /// <summary>Партия внутри комнаты (крестики-нолики).</summary>
     public GameState Game { get; set; } = new();
+
+    /// <summary>Какая игра в комнате: "tictactoe" или "minesweeper".</summary>
+    public string GameType { get; set; } = "tictactoe";
+
+    /// <summary>Партия сапёра (null для крестиков-ноликов).</summary>
+    public MineGameState? Mine { get; set; }
 
     /// <summary>Ставки наблюдателей в этой комнате.</summary>
     public List<Bet> Bets { get; set; } = new();
@@ -64,6 +70,18 @@ public class RoomDto
     public bool HasPassword { get; set; }
     public int PotX { get; set; }
     public int PotO { get; set; }
+
+    /// <summary>"tictactoe" или "minesweeper".</summary>
+    public string GameType { get; set; } = "tictactoe";
+
+    /// <summary>Режим сапёра (solo/pvp/asym/cinema), для крестиков — "".</summary>
+    public string MineMode { get; set; } = "";
+
+    /// <summary>Сложность сапёра (easy/medium/hard).</summary>
+    public string MineDifficulty { get; set; } = "";
+
+    /// <summary>Общий банк сапёра (ante + ставки).</summary>
+    public int MineBank { get; set; }
 }
 
 /// <summary>Статистика модератора (для «работника месяца»).</summary>

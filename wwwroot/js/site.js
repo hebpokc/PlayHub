@@ -3,7 +3,7 @@
 // ------------------------------------------------------------ элементы DOM
 const $ = (id) => document.getElementById(id);
 
-const screens = { join: $("screen-join"), lobby: $("screen-lobby"), room: $("screen-room") };
+const screens = { join: $("screen-join"), lobby: $("screen-lobby"), room: $("screen-room"), mine: $("screen-mine") };
 const joinForm = $("join-form");
 const nameInput = $("name-input");
 const joinStatus = $("join-status");
@@ -26,6 +26,7 @@ let myBalance = 0;
 let isModerator = false;
 let lobbyState = null;      // последний снимок лобби
 let roomState = null;       // последний снимок комнаты
+let mineState = null;       // последний снимок сапёра
 let lastBoard = [];
 let toastTimer = null;
 
@@ -123,6 +124,8 @@ function registerHandlers() {
     connection.on("RoomUpdated", (snapshot) => {
         if (!snapshot) return;
         roomState = snapshot;
+        mineState = null;
+        mineFieldKey = "";
         // успешный вход в закрытую комнату — закрываем модалку пароля
         pendingRoomId = "";
         $("room-password-error").hidden = true;
@@ -133,11 +136,15 @@ function registerHandlers() {
 
     connection.on("RoomLeft", () => {
         roomState = null;
+        mineState = null;
+        mineFieldKey = "";
         showScreen("lobby");
     });
 
     connection.on("RoomDeleted", (message) => {
         roomState = null;
+        mineState = null;
+        mineFieldKey = "";
         showScreen("lobby");
         showToast(message, "error");
     });
@@ -162,6 +169,60 @@ function registerHandlers() {
     connection.on("BalanceUpdated", (balance) => {
         myBalance = balance;
         renderBalance();
+    });
+
+    // ------------------------------------------------------- сапёр
+    connection.on("MineRoomUpdated", (snapshot) => {
+        if (!snapshot) return;
+        mineState = snapshot;
+        roomState = null;
+        pendingRoomId = "";
+        $("room-password-error").hidden = true;
+        $("room-password-modal").className = "banner";
+        showScreen("mine");
+        renderMine(snapshot);
+    });
+
+    connection.on("MineMatchStarted", () => showToast("Сапёр: партия началась! 💣", "ok"));
+    connection.on("MineGameRestarted", () => showToast("Новая партия — внесите ставку и нажмите «Готов»."));
+
+    connection.on("MineExploded", (info) => {
+        showToast(`💥 ${info.name} подорвался на мине!`, "error");
+        const cell = document.querySelector(`#mine-field .mcell[data-index="${info.index}"]`);
+        if (cell) {
+            cell.classList.add("boom");
+            setTimeout(() => cell.classList.remove("boom"), 700);
+        }
+    });
+
+    connection.on("MinePoints", (info) => {
+        // всплывающие очки над полем
+        const wrap = $("mine-field-wrap").getBoundingClientRect();
+        const pop = document.createElement("div");
+        pop.className = "mine-points-pop";
+        pop.textContent = `+${info.points}`;
+        pop.style.left = (wrap.left + wrap.width / 2 - 20) + "px";
+        pop.style.top = (wrap.top + 40) + "px";
+        document.body.appendChild(pop);
+        setTimeout(() => pop.remove(), 1100);
+    });
+
+    connection.on("MineGameFinished", (result) => {
+        if (result.isDraw) {
+            showBanner("Ничья!", "Сапёр: ничья — ставки возвращены.");
+        } else if (result.winnerId === myId) {
+            showBanner("Победа! 🎉", result.payout > 0
+                ? `Вы получаете ${result.payout} монет из банка (комиссия хаба 5%).`
+                : "Поле разминировано — рекорд записан!");
+            confetti(220);
+        } else if (result.winnerName) {
+            showBanner(`${result.winnerName} победил!`, result.payout > 0
+                ? `Банк ${result.payout} монет уходит победителю. Реванш?`
+                : "Реванш?");
+            confetti(70);
+        } else {
+            showBanner("Партия окончена", "Поле открыто — посмотрите, где были мины.");
+        }
     });
 
     // чат: сначала история для новичка, потом каждое новое сообщение
@@ -218,26 +279,107 @@ function setConnection(ok, text) {
     $("conn-text").textContent = text;
     $("room-conn-dot").className = "dot " + (ok ? "on" : "off");
     $("room-conn-text").textContent = text;
+    $("mine-conn-dot").className = "dot " + (ok ? "on" : "off");
+    $("mine-conn-text").textContent = text;
 }
 
 function renderBalance() {
     $("my-balance").textContent = `💰 ${myBalance}`;
     $("room-my-balance").textContent = `💰 ${myBalance}`;
+    $("mine-my-balance").textContent = `💰 ${myBalance}`;
 }
 
 // ============================================================ действия: лобби
 
-$("create-room-form").addEventListener("submit", async (e) => {
+// ------------------------------------------------- меню создания комнаты
+let createGame = "tictactoe";
+let createMode = "solo";
+let createDiff = "easy";
+
+const modeDescriptions = {
+    solo: "Один игрок, остальные смотрят. Цель — максимум очков до подрыва. Ставок нет.",
+    pvp: "Двое ходят по очереди. Подорвался — проиграл. Быстрые ходы дают множитель очков. Банк из ставок игроков.",
+    asym: "Террорист расставляет мины (60 сек), сапёр разминирует. Роли меняются каждую партию.",
+    cinema: "3–8 игроков ходят по кругу (20 сек на ход). Подорвался — выбыл. Последний выживший забирает банк."
+};
+
+$("open-create-menu").addEventListener("click", () => {
+    $("create-step-games").hidden = false;
+    $("create-settings-form").hidden = true;
+    $("create-menu").className = "banner show";
+});
+
+$("create-cancel").addEventListener("click", () => ($("create-menu").className = "banner"));
+
+$("create-back").addEventListener("click", () => {
+    $("create-step-games").hidden = false;
+    $("create-settings-form").hidden = true;
+});
+
+document.querySelectorAll(".game-card[data-game]").forEach((card) => {
+    // 3D-наклон с подсветкой, следующей за курсором
+    card.addEventListener("mousemove", (e) => {
+        const r = card.getBoundingClientRect();
+        const px = (e.clientX - r.left) / r.width - 0.5;
+        const py = (e.clientY - r.top) / r.height - 0.5;
+        card.style.transform = `perspective(600px) rotateY(${px * 14}deg) rotateX(${-py * 14}deg) translateY(-3px)`;
+    });
+    card.addEventListener("mouseleave", () => (card.style.transform = ""));
+
+    card.addEventListener("click", () => {
+        createGame = card.dataset.game;
+        $("create-step-games").hidden = true;
+        $("create-settings-form").hidden = false;
+        $("mine-settings").hidden = createGame !== "minesweeper";
+        $("create-game-title").textContent = createGame === "minesweeper"
+            ? "💣 Сапёр — настройки партии"
+            : "🎮 Крестики-нолики — настройки комнаты";
+        $("create-room-name").focus();
+    });
+});
+
+document.querySelectorAll("#mine-mode-options .option").forEach((btn) => {
+    btn.addEventListener("click", () => {
+        document.querySelectorAll("#mine-mode-options .option").forEach((b) => b.classList.toggle("active", b === btn));
+        createMode = btn.dataset.mode;
+        $("mine-mode-desc").textContent = modeDescriptions[createMode];
+    });
+});
+
+document.querySelectorAll("#mine-diff-options .option").forEach((btn) => {
+    btn.addEventListener("click", () => {
+        document.querySelectorAll("#mine-diff-options .option").forEach((b) => b.classList.toggle("active", b === btn));
+        createDiff = btn.dataset.diff;
+    });
+});
+
+$("create-settings-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!connection) return;
-    const name = $("room-name-input").value.trim();
-    const password = $("room-password-input").value;
+    const name = $("create-room-name").value.trim();
+    const password = $("create-room-password").value;
     try {
-        await connection.invoke("CreateRoom", name, password);
-        $("room-name-input").value = "";
-        $("room-password-input").value = "";
-        showScreen("room");
+        if (createGame === "minesweeper")
+            await connection.invoke("CreateMineRoom", name, password, createMode, createDiff, 10);
+        else
+            await connection.invoke("CreateRoom", name, password);
+        $("create-room-name").value = "";
+        $("create-room-password").value = "";
+        $("create-menu").className = "banner";
+        // экран переключится по RoomUpdated / MineRoomUpdated
     } catch (err) { console.error(err); }
+});
+
+// --------------------------------------------------------- вкладки таблиц
+document.querySelectorAll("#tables-tabs .tab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+        document.querySelectorAll("#tables-tabs .tab").forEach((t) => t.classList.toggle("active", t === tab));
+        document.querySelectorAll(".tab-page").forEach((p) => {
+            const active = p.id === tab.dataset.tab;
+            p.hidden = !active;
+            p.classList.toggle("active", active);
+        });
+    });
 });
 
 // ------------------------------------------------------------ пароль комнаты
@@ -342,6 +484,14 @@ $("banner-close").addEventListener("click", () => (banner.className = "banner"))
 
 // ============================================================ отрисовка: лобби
 
+function mineModeLabel(mode) {
+    return { solo: "Одиночка", pvp: "PvP", asym: "Сапёр vs Террорист", cinema: "Кинотеатр" }[mode] || mode;
+}
+
+function mineDiffLabel(diff) {
+    return { easy: "лёгкая", medium: "средняя", hard: "тяжёлая" }[diff] || diff;
+}
+
 function renderLobby(s) {
     setConnection(true, "онлайн");
     $("online-count").textContent = s.users.length;
@@ -356,6 +506,7 @@ function renderLobby(s) {
     // таблицы видны всем пользователям
     renderModStats();
     renderBalances();
+    renderMineRecords();
 
     if (isModerator) renderBanned();
 }
@@ -376,12 +527,19 @@ function renderRooms(rooms) {
         const li = document.createElement("li");
         li.className = "room-item";
 
+        const isMine = r.gameType === "minesweeper";
+        const tag = isMine
+            ? `<span class="game-tag">💣 ${mineModeLabel(r.mineMode)} · ${mineDiffLabel(r.mineDifficulty)}</span>`
+            : `<span class="game-tag">✕◯</span>`;
+
         const info = document.createElement("div");
         info.className = "room-info";
         info.innerHTML =
-            `<div class="room-name">${r.hasPassword ? "🔒 " : ""}${escapeHtml(r.name)} ${r.inGame ? '<span class="live">идёт игра</span>' : ""}</div>` +
-            `<div class="room-sub">хост: ${escapeHtml(r.hostName)} · ✕/◯: ${r.playersCount} · 👁: ${r.spectatorsCount}` +
-            (r.potX + r.potO > 0 ? ` · банк ставок: ${r.potX + r.potO}💰` : "") + `</div>`;
+            `<div class="room-name">${r.hasPassword ? "🔒 " : ""}${escapeHtml(r.name)} ${tag} ${r.inGame ? '<span class="live">идёт игра</span>' : ""}</div>` +
+            `<div class="room-sub">хост: ${escapeHtml(r.hostName)} · 🎮: ${r.playersCount} · 👁: ${r.spectatorsCount}` +
+            (isMine
+                ? (r.mineBank > 0 ? ` · банк: ${r.mineBank}💰` : "")
+                : (r.potX + r.potO > 0 ? ` · банк ставок: ${r.potX + r.potO}💰` : "")) + `</div>`;
 
         const join = document.createElement("button");
         join.className = "btn primary small";
@@ -531,6 +689,319 @@ async function renderBalances() {
         });
     } catch (err) { console.error(err); }
 }
+
+/** Таблица рекордов сапёра (видна всем). */
+async function renderMineRecords() {
+    const body = $("mine-records-body");
+    try {
+        const rows = await connection.invoke("GetMineRecords");
+        body.innerHTML = "";
+        if (!rows.length) {
+            body.innerHTML = `<tr><td colspan="5" class="empty">Рекордов пока нет.</td></tr>`;
+            return;
+        }
+        rows.slice(0, 10).forEach((r, i) => {
+            const tr = document.createElement("tr");
+            if (i === 0) tr.className = "top1";
+            if (r.name.toLowerCase() === myName.toLowerCase()) tr.className += " me";
+            const time = r.bestTimeSeconds > 0 ? formatTime(r.bestTimeSeconds) : "—";
+            tr.innerHTML = `<td>${i + 1}</td><td>${escapeHtml(r.name)}</td><td>${mineDiffLabel(r.difficulty)}</td>` +
+                `<td>${r.bestScore}</td><td>${time}</td>`;
+            body.appendChild(tr);
+        });
+    } catch (err) { console.error(err); }
+}
+
+function formatTime(totalSeconds) {
+    const m = Math.floor(totalSeconds / 60);
+    const s = totalSeconds % 60;
+    return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+// ============================================================ отрисовка: сапёр
+
+let mineFieldKey = "";      // размер поля, чтобы не пересоздавать DOM каждый кадр
+
+function renderMine(s) {
+    if (!s) return;
+
+    $("mine-room-title").textContent = (s.hasPassword ? "🔒 " : "") + s.roomName;
+    $("mine-my-name").textContent = myName + (isModerator ? " 🛡" : "");
+    $("mine-delete-room").hidden = !(s.isHost || isModerator);
+    setConnection(true, "онлайн");
+
+    const me = s.participants.find((p) => p.connectionId === myId);
+    const isPlayer = !!me && !me.isOut;
+    const myTurn = s.isStarted && !s.isFinished && s.turnId === myId;
+    const placing = s.isPlacing && myTurn;
+
+    $("mine-mode-hint").textContent =
+        `${mineModeLabel(s.mode)} · ${s.difficultyTitle} ${s.width}×${s.height} · ${s.mineCount} мин` +
+        (s.mode !== "solo" ? ` · ante от ${s.ante}💰` : " · без ставок");
+
+    // --- кнопки управления
+    $("mine-join-button").hidden = !!me || (s.isStarted && !s.isFinished);
+    $("mine-leave-button").hidden = !me || (s.isStarted && !s.isFinished);
+    $("mine-ante-row").hidden = !me || s.mode === "solo" || s.isStarted || (me && me.ante > 0);
+    $("mine-ready-button").hidden = !me || s.isStarted;
+    $("mine-ready-button").disabled = !me || (me && me.isReady);
+    $("mine-ready-button").textContent = me && me.isReady ? "Готово! Ждём остальных…" : "Готов / Начать";
+    $("mine-ready-button").className = "btn big " + (me && me.isReady ? "ready" : "primary");
+    $("mine-place-done").hidden = !placing;
+    $("mine-surrender-button").hidden = !isPlayer || !s.isStarted || s.isFinished || s.isPlacing;
+    $("mine-restart-button").hidden = !s.isFinished || !me;
+
+    // --- статусная строка
+    $("mine-flags-left").textContent = s.flagsLeft;
+    $("mine-timer").textContent = formatTime(s.elapsedSeconds);
+    $("mine-turn-chip").hidden = !s.isStarted || s.isFinished || s.mode === "solo";
+    if (s.isStarted && !s.isFinished && s.mode !== "solo") {
+        $("mine-turn-name").textContent = s.isPlacing ? `${s.turnName} (расстановка)` : s.turnName;
+        const sec = s.turnSecondsLeft;
+        $("mine-turn-seconds").textContent = sec == null ? "" : `· ${sec}с`;
+        $("mine-turn-seconds").className = sec != null && sec <= 5 ? "urgent" : "";
+    }
+
+    // --- поле
+    renderMineField(s, me, myTurn, placing);
+
+    // --- подпись под полем
+    const status = $("mine-status-text");
+    if (s.isFinished) {
+        status.innerHTML = s.isDraw
+            ? "Ничья — ставки возвращены."
+            : s.winnerName
+                ? `Победа: <b>${escapeHtml(s.winnerName)}</b> 🎉` + (s.winnerPayout > 0 ? ` +${s.winnerPayout}💰` : "")
+                : "Партия окончена.";
+    } else if (!s.isStarted) {
+        status.textContent = me
+            ? "Нажмите «Готов», чтобы начать партию."
+            : "Займите место игрока или наблюдайте за партией.";
+    } else if (s.isPlacing) {
+        status.innerHTML = placing
+            ? "Расставьте мины: <b>левый клик</b> — поставить/снять. Затем «Мины расставлены»."
+            : `<b>${escapeHtml(s.turnName)}</b> расставляет мины…`;
+    } else {
+        status.innerHTML = s.mode === "solo"
+            ? "Левый клик — открыть, правый — флажок. Первый ход безопасный."
+            : myTurn
+                ? "<b>Ваш ход!</b> Левый клик — открыть, правый — флажок."
+                : `Ходит <b>${escapeHtml(s.turnName)}</b>…`;
+    }
+
+    // --- счёт под полем
+    const scores = $("mine-scores");
+    scores.innerHTML = "";
+    s.participants.forEach((p) => {
+        const card = document.createElement("div");
+        card.className = "mine-score-card" +
+            (p.connectionId === s.turnId && !s.isFinished ? " turn" : "") +
+            (p.isOut ? " out" : "");
+        const role = s.mode === "asym" ? (p.isTerrorist ? "💣" : "🚩") : "🎮";
+        card.innerHTML = `${role} ${escapeHtml(p.name)} — <b>${p.score}</b>` + (p.isOut ? " 💥" : "");
+        scores.appendChild(card);
+    });
+
+    // --- банк и ставки
+    const specPot = s.bets.reduce((a, b) => a + b.amount, 0);
+    $("mine-bank-hint").textContent = s.mode === "solo"
+        ? "Одиночный режим — ставок нет, только рекорды."
+        : (s.bank > 0 ? `Банк ante: ${s.bank}💰 → победителю ${Math.floor(s.bank * 0.95)}💰 (комиссия 5%). ` : "Банк пуст — игроки вносят ante при готовности. ") +
+          (specPot > 0 ? `Ставки наблюдателей: ${specPot}💰.` : "") + " Пул ставок делится между угадавшими (−5%).";
+
+    const betsList = $("mine-bets-list");
+    betsList.innerHTML = "";
+    if (!s.bets.length) {
+        const li = document.createElement("li");
+        li.className = "empty-row";
+        li.textContent = "ставок наблюдателей нет";
+        betsList.appendChild(li);
+    } else {
+        s.bets.forEach((b) => {
+            const li = document.createElement("li");
+            li.textContent = `${b.name} → ${b.side}: ${b.amount}💰`;
+            betsList.appendChild(li);
+        });
+    }
+
+    // ставка наблюдателя
+    const canBet = s.bettingOpen && !me;
+    $("mine-bet-box").hidden = !canBet;
+    if (canBet) {
+        const select = $("mine-bet-target");
+        const prev = select.value;
+        select.innerHTML = "";
+        s.participants.forEach((p) => {
+            const opt = document.createElement("option");
+            opt.value = p.connectionId;
+            opt.textContent = p.name;
+            select.appendChild(opt);
+        });
+        if (prev && s.participants.some((p) => p.connectionId === prev)) select.value = prev;
+    }
+
+    // --- мой рекорд
+    $("mine-my-record").textContent = s.myRecord
+        ? `Лучший счёт: ${s.myRecord.bestScore}` +
+          (s.myRecord.bestTimeSeconds > 0 ? ` · лучшее время: ${formatTime(s.myRecord.bestTimeSeconds)}` : "") +
+          ` · игр: ${s.myRecord.games}, побед: ${s.myRecord.wins}`
+        : "Сыграйте партию, чтобы установить рекорд.";
+
+    // --- списки людей
+    const playersList = $("mine-players-list");
+    playersList.innerHTML = "";
+    if (!s.participants.length) {
+        playersList.innerHTML = `<li class="empty-row">игроков нет</li>`;
+    } else {
+        s.participants.forEach((p) => {
+            const li = document.createElement("li");
+            if (p.isOut) li.classList.add("out");
+            if (p.connectionId === s.turnId && !s.isFinished) li.classList.add("turn-now");
+            const role = s.mode === "asym" ? (p.isTerrorist ? "💣 террорист" : "🚩 сапёр") : "";
+            li.innerHTML = `<span>${escapeHtml(p.name)}${p.isOut ? " 💥" : ""}${p.isReady && !s.isStarted ? " ✔" : ""}</span>` +
+                `<span class="mrole">${role} ${p.score} очк.${p.connectionId === myId ? " · вы" : ""}</span>`;
+            playersList.appendChild(li);
+        });
+    }
+
+    const specList = $("mine-spec-list");
+    specList.innerHTML = "";
+    $("mine-spec-count").textContent = s.spectators.length;
+    if (!s.spectators.length) {
+        specList.innerHTML = `<li class="empty-row">никого нет</li>`;
+    } else {
+        s.spectators.forEach((p) => {
+            const li = document.createElement("li");
+            li.innerHTML = `<span>👁 ${escapeHtml(p.name)}${p.isModerator ? " 🛡" : ""}</span>` +
+                (p.connectionId === myId ? `<span class="who">это вы</span>` : "");
+            specList.appendChild(li);
+        });
+    }
+}
+
+/** Перерисовать клетки поля (DOM создаётся один раз на размер). */
+function renderMineField(s, me, myTurn, placing) {
+    const field = $("mine-field");
+    const key = `${s.width}x${s.height}`;
+
+    if (mineFieldKey !== key) {
+        mineFieldKey = key;
+        field.innerHTML = "";
+        // размер клетки под ширину поля: тяжёлое 30×16 мельче
+        const size = s.width > 20 ? 26 : s.width > 12 ? 30 : 36;
+        field.style.setProperty("--cell-size", size + "px");
+        field.style.gridTemplateColumns = `repeat(${s.width}, var(--cell-size))`;
+        for (let i = 0; i < s.width * s.height; i++) {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "mcell";
+            btn.dataset.index = i;
+            field.appendChild(btn);
+        }
+    }
+
+    const interactive = s.isStarted && !s.isFinished && (placing || (myTurn && !s.isPlacing));
+
+    for (let i = 0; i < s.cells.length; i++) {
+        const btn = field.children[i];
+        const v = s.cells[i];
+        btn.className = "mcell";
+        btn.textContent = "";
+        btn.disabled = !interactive;
+
+        if (v === -1) {
+            // закрыта
+        } else if (v === -2) {
+            btn.classList.add("flag");
+            btn.textContent = "🚩";
+        } else if (v === -3) {
+            btn.classList.add("mine", "open");
+            btn.textContent = "💣";
+            if (i === s.explodedIndex) btn.classList.add("boom");
+        } else {
+            btn.classList.add("open");
+            if (v > 0) {
+                btn.classList.add("n" + v);
+                btn.textContent = v;
+            }
+        }
+        if (placing) btn.classList.add("placing");
+    }
+}
+
+// --------------------------------------------------- действия: сапёр
+
+$("mine-field").addEventListener("click", async (e) => {
+    const btn = e.target.closest(".mcell");
+    if (!btn || !connection || btn.disabled) return;
+    const index = Number(btn.dataset.index);
+    try {
+        if (mineState && mineState.isPlacing)
+            await connection.invoke("MinePlace", index);
+        else
+            await connection.invoke("MineOpen", index);
+    } catch (err) { console.error(err); }
+});
+
+$("mine-field").addEventListener("contextmenu", async (e) => {
+    e.preventDefault();
+    const btn = e.target.closest(".mcell");
+    if (!btn || !connection || btn.disabled) return;
+    if (mineState && mineState.isPlacing) return;
+    try { await connection.invoke("MineFlag", Number(btn.dataset.index)); } catch (err) { console.error(err); }
+});
+
+$("mine-join-button").addEventListener("click", async () => {
+    if (!connection) return;
+    try { await connection.invoke("MineJoin"); } catch (err) { console.error(err); }
+});
+
+$("mine-leave-button").addEventListener("click", async () => {
+    if (!connection) return;
+    try { await connection.invoke("MineLeave"); } catch (err) { console.error(err); }
+});
+
+$("mine-ready-button").addEventListener("click", async () => {
+    if (!connection) return;
+    const ante = Number($("mine-ante-input").value) || 10;
+    try { await connection.invoke("MineReady", ante); } catch (err) { console.error(err); }
+});
+
+$("mine-place-done").addEventListener("click", async () => {
+    if (!connection) return;
+    try { await connection.invoke("MineFinishPlacing"); } catch (err) { console.error(err); }
+});
+
+$("mine-surrender-button").addEventListener("click", async () => {
+    if (!connection) return;
+    if (!confirm("Сдаться? Партия будет засчитана как поражение.")) return;
+    try { await connection.invoke("MineSurrender"); } catch (err) { console.error(err); }
+});
+
+$("mine-restart-button").addEventListener("click", async () => {
+    if (!connection) return;
+    try { await connection.invoke("MineRestart"); } catch (err) { console.error(err); }
+});
+
+$("mine-bet-button").addEventListener("click", async () => {
+    if (!connection) return;
+    const target = $("mine-bet-target").value;
+    const amount = Number($("mine-bet-amount").value);
+    if (!target) { showToast("Выберите игрока для ставки.", "error"); return; }
+    if (!Number.isInteger(amount) || amount < 10) { showToast("Минимальная ставка — 10 монет.", "error"); return; }
+    try { await connection.invoke("MineBet", target, amount); } catch (err) { console.error(err); }
+});
+
+$("mine-exit-room").addEventListener("click", async () => {
+    if (!connection) return;
+    try { await connection.invoke("LeaveRoom"); } catch (err) { console.error(err); }
+});
+
+$("mine-delete-room").addEventListener("click", async () => {
+    if (!connection) return;
+    if (!confirm("Удалить эту комнату? Все участники вернутся в лобби.")) return;
+    try { await connection.invoke("DeleteRoom", null); } catch (err) { console.error(err); }
+});
 
 // ============================================================ отрисовка: комната
 

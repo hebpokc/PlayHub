@@ -24,6 +24,7 @@ public class LobbyService
     private readonly object _lock = new();
     private readonly LeaderboardService _leaderboard;
     private readonly WalletService _wallets;
+    private readonly MinesweeperService _mines;
     private readonly ILogger<LobbyService>? _logger;
 
     /// <summary>Все онлайн: ConnectionId -> Player.</summary>
@@ -35,10 +36,11 @@ public class LobbyService
     /// <summary>Событие: комната удалена (идёт вещание из хаба).</summary>
     public event Action<Room, string>? RoomRemoved;
 
-    public LobbyService(LeaderboardService leaderboard, WalletService wallets, ILogger<LobbyService>? logger = null)
+    public LobbyService(LeaderboardService leaderboard, WalletService wallets, MinesweeperService mines, ILogger<LobbyService>? logger = null)
     {
         _leaderboard = leaderboard;
         _wallets = wallets;
+        _mines = mines;
         _logger = logger;
 
         // раз в минуту удаляем комнаты, где никого нет / нет активности 5 минут
@@ -111,6 +113,14 @@ public class LobbyService
 
         lock (room.Sync)
         {
+            if (room.GameType == "minesweeper")
+            {
+                _mines.LeaveGame(room, connectionId);
+                room.Bets.RemoveAll(b => b.ConnectionId == connectionId);
+                if (!room.HasMembers(Players.Values)) room.Touch();
+                return;
+            }
+
             var wasX = room.Game.PlayerXId == connectionId;
             var wasO = room.Game.PlayerOId == connectionId;
             if (wasX) room.Game.PlayerXId = "";
@@ -142,6 +152,23 @@ public class LobbyService
         Rooms[room.Id] = room;
 
         if (player != null) player.CurrentRoomId = room.Id;
+        return room;
+    }
+
+    /// <summary>Создать комнату сапёра с режимом и сложностью.</summary>
+    public Room CreateMineRoom(string connectionId, string roomName, string? password, string mode, string difficultyKey, int ante)
+    {
+        var room = CreateRoom(connectionId, roomName, password);
+        var difficulty = MineDifficulty.ByKey(difficultyKey) ?? MineDifficulty.Easy;
+
+        room.GameType = "minesweeper";
+        room.Mine = new MineGameState
+        {
+            Mode = MineMode.IsValid(mode) ? mode : MineMode.Solo,
+            Difficulty = difficulty,
+            Ante = Math.Max(MinesweeperService.MinAnte, ante)
+        };
+        room.Mine.InitField();
         return room;
     }
 
@@ -183,6 +210,14 @@ public class LobbyService
 
         lock (room.Sync)
         {
+            if (room.GameType == "minesweeper")
+            {
+                _mines.LeaveGame(room, connectionId);
+                room.Bets.RemoveAll(b => b.ConnectionId == connectionId);
+                if (!room.HasMembers(Players.Values)) room.Touch();
+                return;
+            }
+
             if (room.Game.PlayerXId == connectionId) room.Game.PlayerXId = "";
             if (room.Game.PlayerOId == connectionId) room.Game.PlayerOId = "";
             ResetBoard(room);
@@ -203,6 +238,8 @@ public class LobbyService
     public Room? RemoveRoom(string roomId, string reason)
     {
         if (!Rooms.TryRemove(roomId, out var room)) return null;
+
+        _mines.RefundRoom(room);
 
         foreach (var p in Players.Values)
         {
@@ -227,6 +264,7 @@ public class LobbyService
 
         var room = Rooms.GetValueOrDefault(player.CurrentRoomId);
         if (room == null) return "no-room";
+        if (room.GameType != "tictactoe") return "В комнате сапёра используйте «Сесть играть».";
 
         lock (room.Sync)
         {
@@ -416,6 +454,7 @@ public class LobbyService
 
         var room = GetRoomOf(player);
         if (room == null) return "Вы не в комнате.";
+        if (room.GameType != "tictactoe") return "В комнате сапёра ставки делаются на игрока.";
 
         if (side != "X" && side != "O") return "Ставить можно только на ✕ или ◯.";
         if (amount <= 0) return "Сумма ставки должна быть больше нуля.";
@@ -459,18 +498,30 @@ public class LobbyService
                 var members = all.Where(p => p.CurrentRoomId == r.Id).ToList();
                 lock (r.Sync)
                 {
+                    var isMine = r.GameType == "minesweeper";
+                    var mine = r.Mine;
                     return new RoomDto
                     {
                         Id = r.Id,
                         Name = r.Name,
                         HostConnectionId = r.HostConnectionId,
                         HostName = GetName(r.HostConnectionId),
-                        PlayersCount = members.Count(p => p.Side == "X" || p.Side == "O"),
-                        SpectatorsCount = members.Count(p => p.Side != "X" && p.Side != "O"),
-                        InGame = r.Game.IsStarted && !r.Game.IsFinished,
+                        PlayersCount = isMine
+                            ? mine!.Participants.Count
+                            : members.Count(p => p.Side == "X" || p.Side == "O"),
+                        SpectatorsCount = isMine
+                            ? members.Count - mine!.Participants.Count
+                            : members.Count(p => p.Side != "X" && p.Side != "O"),
+                        InGame = isMine
+                            ? mine!.IsStarted && !mine.IsFinished
+                            : r.Game.IsStarted && !r.Game.IsFinished,
                         HasPassword = r.Password != "",
-                        PotX = r.Bets.Where(b => b.Side == "X").Sum(b => b.Amount),
-                        PotO = r.Bets.Where(b => b.Side == "O").Sum(b => b.Amount)
+                        PotX = isMine ? 0 : r.Bets.Where(b => b.Side == "X").Sum(b => b.Amount),
+                        PotO = isMine ? 0 : r.Bets.Where(b => b.Side == "O").Sum(b => b.Amount),
+                        GameType = r.GameType,
+                        MineMode = mine?.Mode ?? "",
+                        MineDifficulty = mine?.Difficulty.Key ?? "",
+                        MineBank = isMine ? mine!.Bank + r.Bets.Sum(b => b.Amount) : 0
                     };
                 }
             }).ToList();
@@ -488,7 +539,7 @@ public class LobbyService
     {
         var player = GetPlayer(connectionId);
         var room = player == null ? null : GetRoomOf(player);
-        if (room == null) return null;
+        if (room == null || room.GameType == "minesweeper") return null;
 
         lock (room.Sync)
         {
@@ -527,6 +578,27 @@ public class LobbyService
                 WinnerPrize = WinPrize
             };
         }
+    }
+
+    /// <summary>Снимок комнаты сапёра для клиента.</summary>
+    public MineSnapshot? GetMineSnapshot(string connectionId)
+    {
+        var player = GetPlayer(connectionId);
+        var room = player == null ? null : GetRoomOf(player);
+        if (room == null || room.GameType != "minesweeper") return null;
+        return _mines.GetSnapshot(room, connectionId, GetName, Players.Values.ToList());
+    }
+
+    /// <summary>Тик таймеров сапёра: возвращает комнаты, где состояние изменилось.</summary>
+    public List<Room> TickMines()
+    {
+        var changed = new List<Room>();
+        foreach (var room in Rooms.Values)
+        {
+            if (room.GameType == "minesweeper" && _mines.Tick(room))
+                changed.Add(room);
+        }
+        return changed;
     }
 
     private static PlayerDto ToDto(Player p) => new()
