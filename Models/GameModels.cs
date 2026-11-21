@@ -1,4 +1,4 @@
-namespace TicTacToeSignalR.Models;
+namespace PlayHub.Models;
 
 /// <summary>
 /// Один подключённый пользователь (игрок или наблюдатель).

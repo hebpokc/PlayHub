@@ -12,16 +12,16 @@ EXPOSE 8081
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
-COPY ["TicTacToeSignalR.csproj", "."]
-RUN dotnet restore "./TicTacToeSignalR.csproj"
+COPY ["PlayHub.csproj", "."]
+RUN dotnet restore "./PlayHub.csproj"
 COPY . .
 WORKDIR "/src/."
-RUN dotnet build "./TicTacToeSignalR.csproj" -c $BUILD_CONFIGURATION -o /app/build
+RUN dotnet build "./PlayHub.csproj" -c $BUILD_CONFIGURATION -o /app/build
 
 # Этот этап используется для публикации проекта службы, который будет скопирован на последний этап
 FROM build AS publish
 ARG BUILD_CONFIGURATION=Release
-RUN dotnet publish "./TicTacToeSignalR.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false
+RUN dotnet publish "./PlayHub.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false
 
 # Этот этап используется в рабочей среде или при запуске из VS в обычном режиме (по умолчанию, когда конфигурация отладки не используется)
 FROM base AS final
@@ -34,4 +34,4 @@ USER root
 RUN mkdir -p /app/App_Data && chown -R $APP_UID:0 /app/App_Data
 USER $APP_UID
 
-ENTRYPOINT ["dotnet", "TicTacToeSignalR.dll"]
+ENTRYPOINT ["dotnet", "PlayHub.dll"]

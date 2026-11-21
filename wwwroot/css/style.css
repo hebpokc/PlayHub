@@ -28,6 +28,15 @@ html, body {
     background-attachment: fixed;
 }
 
+#bg-anim {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 0;
+}
+
 #confetti {
     position: fixed;
     inset: 0;
@@ -36,6 +45,9 @@ html, body {
     pointer-events: none;
     z-index: 60;
 }
+
+/* контент поверх фоновой анимации */
+.screen { position: relative; z-index: 1; }
 
 .x-color { color: var(--x); }
 .o-color { color: var(--o); }
@@ -210,11 +222,11 @@ input[type="text"]:focus {
 
 .hub {
     display: grid;
-    grid-template-columns: 300px minmax(320px, 1fr) 320px;
-    gap: 18px;
-    padding: 22px;
+    grid-template-columns: 330px minmax(320px, 1fr) 320px;
+    gap: 20px;
+    padding: 24px;
     align-items: start;
-    max-width: 1400px;
+    max-width: 1460px;
     margin: 0 auto;
 }
 @media (max-width: 1100px) { .hub { grid-template-columns: 1fr; } }
@@ -223,7 +235,7 @@ input[type="text"]:focus {
     background: var(--panel);
     border: 1px solid var(--panel-border);
     border-radius: var(--radius);
-    padding: 18px;
+    padding: 22px;
     animation: fadeIn .4s ease;
 }
 
@@ -232,9 +244,21 @@ input[type="text"]:focus {
     text-transform: uppercase;
     letter-spacing: 1.4px;
     color: var(--muted);
-    margin: 0 0 12px;
+    margin: 0 0 14px;
 }
-.panel-title + .panel-title, .people + .panel-title, .match-box + .panel-title { margin-top: 24px; }
+/* воздух между соседними блоками панели */
+.panel-title + .panel-title,
+.people + .panel-title,
+.match-box + .panel-title,
+.roles + .panel-title,
+.betting-box + .panel-title,
+.leaders + .panel-title,
+.hint + .panel-title,
+.rooms + .panel-title,
+#mod-panel .hint + form { margin-top: 30px; }
+
+.panel > .roles, .panel > .betting-box, .panel > .match-box { margin-bottom: 6px; }
+.panel > .leaders { margin-bottom: 8px; }
 
 .badge {
     background: rgba(255,255,255,.10);
@@ -246,7 +270,7 @@ input[type="text"]:focus {
 
 /* ------------------------- выбор стороны -------------------------------- */
 
-.roles { display: grid; gap: 10px; }
+.roles { display: grid; gap: 12px; }
 
 .role {
     display: grid;
@@ -271,8 +295,8 @@ input[type="text"]:focus {
 .role-name { grid-area: name; font-weight: 600; font-size: 14px; }
 .role-status { grid-area: status; font-size: 12px; color: var(--muted); }
 
-.match-box { display: grid; gap: 10px; }
-.hint { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.5; min-height: 36px; }
+.match-box { display: grid; gap: 14px; }
+.hint { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.55; min-height: 36px; }
 
 /* ------------------------------- чат ------------------------------------ */
 
@@ -524,15 +548,12 @@ input[type="text"]:focus {
 
 .money { color: #ffd76a; margin-left: 6px; }
 
-/* лобби: сетка */
-.lobby-hub { grid-template-columns: 340px minmax(320px, 1fr) 320px; }
+/* лобби: сетка — колонка комнат шире, чтобы поля ввода не обрезались */
+.lobby-hub { grid-template-columns: 400px minmax(320px, 1fr) 340px; max-width: 1560px; }
 
 .lobby-chat { height: 420px; }
 
 /* ------------------------- список комнат --------------------------------- */
-
-#create-room-form { display: flex; gap: 8px; margin-bottom: 12px; }
-#create-room-form input { flex: 1 1 auto; min-width: 0; }
 
 .rooms { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
 .rooms li.room-item {
@@ -567,15 +588,15 @@ input[type="text"]:focus {
 
 .betting-box {
     display: grid;
-    gap: 10px;
-    padding: 12px;
+    gap: 12px;
+    padding: 14px;
     border-radius: 14px;
     border: 1px solid rgba(255, 217, 106, .25);
     background: rgba(255, 217, 106, .06);
 }
 .betting-box.closed { opacity: .55; filter: saturate(.4); }
 
-.bet-row { display: flex; gap: 8px; align-items: stretch; }
+.bet-row { display: flex; gap: 10px; align-items: stretch; }
 .bet-side {
     flex: 1 1 0;
     padding: 11px 0;
@@ -614,15 +635,33 @@ input[type="text"]:focus {
 .chat-author.side-mod { color: #ffd76a; }
 
 /* панель модератора */
-#mod-panel { margin-top: 22px; }
-#mod-panel .hint { margin: 0 0 10px; }
-#unban-form { display: flex; gap: 8px; margin-bottom: 16px; }
+#mod-panel { margin-top: 30px; }
+#mod-panel .hint { margin: 0 0 14px; }
+#unban-form { display: flex; gap: 10px; margin-bottom: 18px; }
 #unban-form input { flex: 1 1 auto; min-width: 0; }
 
 /* экран входа: форма модератора */
 #mod-form { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 12px; }
 #mod-form[hidden] { display: none; }
 #mod-form input { flex: 1 1 180px; }
+
+/* модалка пароля комнаты */
+#room-password-form { display: grid; gap: 14px; }
+#room-password-form input { width: 100%; }
+.modal-actions { display: flex; gap: 12px; justify-content: center; }
+
+.password-error {
+    margin: 0 0 14px;
+    color: var(--danger);
+    font-size: 14px;
+    font-weight: 600;
+}
+.password-error[hidden] { display: none; }
+
+/* создание комнаты: имя + пароль, поля на всю ширину — текст виден целиком */
+#create-room-form { display: grid; gap: 10px; margin-bottom: 16px; }
+#create-room-form input { width: 100%; font-size: 14px; padding: 12px 14px; }
+#create-room-form .btn { justify-self: stretch; padding: 11px; }
 
 input[type="password"] {
     padding: 14px 16px;

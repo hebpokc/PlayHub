@@ -1,6 +1,6 @@
-using TicTacToeSignalR.Models;
+using PlayHub.Models;
 
-namespace TicTacToeSignalR.Services;
+namespace PlayHub.Services;
 
 /// <summary>
 /// Простой чат лобби: последние 50 сообщений держим в памяти,
@@ -76,20 +76,32 @@ public class ChatService
             // Держим в памяти только последние 50 сообщений
             if (_messages.Count > MaxHistory)
                 _messages.RemoveAt(0);
-        }
 
-        AppendToFile(message);
+            AppendToFile(message);
+        }
     }
 
     private void AppendToFile(ChatMessage message)
     {
-        try
+        var line = $"[{message.Time}] {message.Author}: {message.Text}{Environment.NewLine}";
+
+        // Файл может быть кратковременно занят (антивирус, индексатор) — пробуем ещё пару раз
+        for (var attempt = 1; ; attempt++)
         {
-            File.AppendAllText(_filePath, $"[{message.Time}] {message.Author}: {message.Text}{Environment.NewLine}");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Не удалось записать chat.txt: {ex.Message}");
+            try
+            {
+                File.AppendAllText(_filePath, line);
+                return;
+            }
+            catch (IOException) when (attempt < 3)
+            {
+                Thread.Sleep(50);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Не удалось записать chat.txt: {ex.Message}");
+                return;
+            }
         }
     }
 

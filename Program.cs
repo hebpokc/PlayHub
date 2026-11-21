@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.SignalR;
-using TicTacToeSignalR.Hubs;
-using TicTacToeSignalR.Services;
+using PlayHub.Hubs;
+using PlayHub.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -36,6 +36,6 @@ lobby.RoomRemoved += async (room, reason) =>
 
 app.MapHub<GameHub>("/hubs/game");
 
-app.MapGet("/api/health", () => Results.Ok(new { status = "ok", game = "Tic-Tac-Toe SignalR" }));
+app.MapGet("/api/health", () => Results.Ok(new { status = "ok", hub = "PlayHub" }));
 
 app.Run();

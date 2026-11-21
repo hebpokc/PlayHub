@@ -1,8 +1,8 @@
 using Microsoft.AspNetCore.SignalR;
-using TicTacToeSignalR.Models;
-using TicTacToeSignalR.Services;
+using PlayHub.Models;
+using PlayHub.Services;
 
-namespace TicTacToeSignalR.Hubs;
+namespace PlayHub.Hubs;
 
 /// <summary>
 /// Хаб SignalR. Вход → лобби (список комнат) → комната (партия + ставки).
@@ -63,24 +63,34 @@ public class GameHub : Hub
 
     // --------------------------------------------------------------- комнаты
 
-    public async Task CreateRoom(string? roomName)
+    public async Task CreateRoom(string? roomName, string? password)
     {
-        var room = _lobby.CreateRoom(Context.ConnectionId, roomName ?? "");
+        var room = _lobby.CreateRoom(Context.ConnectionId, roomName ?? "", password);
         await Groups.AddToGroupAsync(Context.ConnectionId, RoomGroup(room.Id));
-        await SendSystemMessage($"{_lobby.GetName(Context.ConnectionId)} создал комнату «{room.Name}»");
+        await SendSystemMessage($"{_lobby.GetName(Context.ConnectionId)} создал комнату «{room.Name}»" +
+            (room.Password != "" ? " 🔒" : ""));
         await BroadcastLobby();
         await BroadcastRoom(room.Id);
         await SendRoomToCaller();
     }
 
-    public async Task JoinRoom(string? roomId)
+    public async Task JoinRoom(string? roomId, string? password)
     {
-        if (!_lobby.TryJoinRoom(Context.ConnectionId, roomId ?? "", out var room) || room == null)
+        var result = _lobby.TryJoinRoom(Context.ConnectionId, roomId ?? "", password, out var room);
+
+        if (result == "not-found")
         {
             await Clients.Caller.SendAsync("ServerError", "Комната не найдена.");
             await BroadcastLobby();
             return;
         }
+        if (result == "wrong-password")
+        {
+            var locked = _lobby.Rooms.GetValueOrDefault(roomId ?? "");
+            await Clients.Caller.SendAsync("RoomPasswordRequired", new { roomId, roomName = locked?.Name ?? "Комната" });
+            return;
+        }
+        if (room == null) return;
 
         await Groups.AddToGroupAsync(Context.ConnectionId, RoomGroup(room.Id));
         await SendSystemMessage($"{_lobby.GetName(Context.ConnectionId)} вошёл в комнату «{room.Name}»");
@@ -263,6 +273,9 @@ public class GameHub : Hub
 
         if (_lobby.Players.TryGetValue(connectionId ?? "", out var target))
         {
+            var moderator = _lobby.GetPlayer(Context.ConnectionId);
+            if (moderator != null) _moderation.RecordAction(moderator.Name, "kick");
+
             await Clients.Client(target.ConnectionId).SendAsync("Kicked", "Модератор исключил вас с сайта.");
             await SendSystemMessage($"Модератор кикнул {target.Name}");
             await Clients.Client(target.ConnectionId).SendAsync("ForceDisconnect");
@@ -279,7 +292,10 @@ public class GameHub : Hub
 
         if (_lobby.Players.TryGetValue(connectionId ?? "", out var target))
         {
-            _moderation.Ban(target.Name);
+            var moderator = _lobby.GetPlayer(Context.ConnectionId);
+            if (_moderation.Ban(target.Name) && moderator != null)
+                _moderation.RecordAction(moderator.Name, "ban");
+
             await Clients.Client(target.ConnectionId).SendAsync("Kicked", "Модератор забанил вас на сайте.");
             await SendSystemMessage($"Модератор забанил {target.Name}");
         }
@@ -303,6 +319,18 @@ public class GameHub : Hub
     {
         if (!RequireModerator(out _)) return Task.FromResult(new List<string>());
         return Task.FromResult(_moderation.GetBannedList());
+    }
+
+    /// <summary>Таблица балансов всех пользователей — видна всем.</summary>
+    public Task<List<BalanceEntryDto>> GetBalances()
+    {
+        return Task.FromResult(_wallets.GetAllBalances());
+    }
+
+    /// <summary>Статистика модераторов: баны + кики (работник месяца — первый в списке). Видна всем.</summary>
+    public Task<List<ModeratorStatDto>> GetModeratorStats()
+    {
+        return Task.FromResult(_moderation.GetStats());
     }
 
     public async Task DeleteRoom(string? roomId)

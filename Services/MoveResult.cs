@@ -1,4 +1,4 @@
-namespace TicTacToeSignalR.Services;
+namespace PlayHub.Services;
 
 /// <summary>Ответ на попытку хода.</summary>
 public enum MoveResult

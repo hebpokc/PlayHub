@@ -1,6 +1,6 @@
-using TicTacToeSignalR.Models;
+using PlayHub.Models;
 
-namespace TicTacToeSignalR.Services;
+namespace PlayHub.Services;
 
 /// <summary>
 /// Простое сохранение таблицы лидеров в текстовый файл App_Data/leaderboard.txt.

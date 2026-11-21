@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
-using TicTacToeSignalR.Models;
+using PlayHub.Models;
 
-namespace TicTacToeSignalR.Services;
+namespace PlayHub.Services;
 
 /// <summary>
 /// Лобби со списком комнат (Singleton). Держит всех подключённых
@@ -127,7 +127,7 @@ public class LobbyService
 
     // --------------------------------------------------------------- комнаты
 
-    public Room CreateRoom(string connectionId, string roomName)
+    public Room CreateRoom(string connectionId, string roomName, string? password)
     {
         var player = GetPlayer(connectionId);
         LeaveRoom(connectionId);
@@ -136,7 +136,8 @@ public class LobbyService
         {
             Id = Guid.NewGuid().ToString("N")[..8],
             Name = CleanRoomName(roomName),
-            HostConnectionId = connectionId
+            HostConnectionId = connectionId,
+            Password = (password ?? "").Trim()
         };
         Rooms[room.Id] = room;
 
@@ -144,20 +145,28 @@ public class LobbyService
         return room;
     }
 
-    public bool TryJoinRoom(string connectionId, string roomId, out Room? room)
+    /// <summary>
+    /// Войти в комнату. Возвращает: "ok", "not-found", "wrong-password".
+    /// Модератор игнорирует пароль комнаты.
+    /// </summary>
+    public string TryJoinRoom(string connectionId, string roomId, string? password, out Room? room)
     {
         room = null;
-        if (!Rooms.TryGetValue(roomId, out var r)) return false;
+        if (!Rooms.TryGetValue(roomId, out var r)) return "not-found";
 
         var player = GetPlayer(connectionId);
-        if (player == null) return false;
+        if (player == null) return "not-found";
+
+        // модератор проходит в любую комнату без пароля
+        if (r.Password != "" && !player.IsModerator && (password ?? "") != r.Password)
+            return "wrong-password";
 
         // за доской может сидеть только один X и один O — остальным можно смотреть
         LeaveRoom(connectionId);
         player.CurrentRoomId = r.Id;
         r.Touch();
         room = r;
-        return true;
+        return "ok";
     }
 
     public void LeaveRoom(string connectionId)
@@ -459,6 +468,7 @@ public class LobbyService
                         PlayersCount = members.Count(p => p.Side == "X" || p.Side == "O"),
                         SpectatorsCount = members.Count(p => p.Side != "X" && p.Side != "O"),
                         InGame = r.Game.IsStarted && !r.Game.IsFinished,
+                        HasPassword = r.Password != "",
                         PotX = r.Bets.Where(b => b.Side == "X").Sum(b => b.Amount),
                         PotO = r.Bets.Where(b => b.Side == "O").Sum(b => b.Amount)
                     };
@@ -493,6 +503,7 @@ public class LobbyService
                 RoomName = room.Name,
                 HostConnectionId = room.HostConnectionId,
                 IsHost = room.HostConnectionId == connectionId,
+                HasPassword = room.Password != "",
                 Board = (string[])room.Game.Board.Clone(),
                 Turn = room.Game.Turn,
                 IsStarted = room.Game.IsStarted,

@@ -4,8 +4,8 @@
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <RootNamespace>TicTacToeSignalR</RootNamespace>
-    <AssemblyName>TicTacToeSignalR</AssemblyName>
+    <RootNamespace>PlayHub</RootNamespace>
+    <AssemblyName>PlayHub</AssemblyName>
     <UserSecretsId>5af906c9-1f8a-4e99-a2c5-9ef5c9b3ef80</UserSecretsId>
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
     <DockerfileContext>.</DockerfileContext>

@@ -1,4 +1,4 @@
-namespace TicTacToeSignalR.Models;
+namespace PlayHub.Models;
 
 /// <summary>
 /// Игровая комната: своя доска, свои игроки и свои ставки.
@@ -8,6 +8,9 @@ public class Room
     public string Id { get; set; } = "";
     public string Name { get; set; } = "Комната";
     public string HostConnectionId { get; set; } = "";
+
+    /// <summary>Пароль комнаты ("" — открытая). Модератор заходит без пароля.</summary>
+    public string Password { get; set; } = "";
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
@@ -58,8 +61,25 @@ public class RoomDto
     public int PlayersCount { get; set; }
     public int SpectatorsCount { get; set; }
     public bool InGame { get; set; }
+    public bool HasPassword { get; set; }
     public int PotX { get; set; }
     public int PotO { get; set; }
+}
+
+/// <summary>Статистика модератора (для «работника месяца»).</summary>
+public class ModeratorStatDto
+{
+    public string Name { get; set; } = "";
+    public int Bans { get; set; }
+    public int Kicks { get; set; }
+    public int Total => Bans + Kicks;
+}
+
+/// <summary>Строка таблицы балансов (видит только модератор).</summary>
+public class BalanceEntryDto
+{
+    public string Name { get; set; } = "";
+    public int Balance { get; set; }
 }
 
 /// <summary>Состояние лобби: комнаты + все онлайн + лидеры.</summary>
@@ -96,6 +116,8 @@ public class RoomSnapshot
 
     public List<PlayerDto> Players { get; set; } = new();
     public List<PlayerDto> Spectators { get; set; } = new();
+
+    public bool HasPassword { get; set; }
 
     public List<BetDto> Bets { get; set; } = new();
 

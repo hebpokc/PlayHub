@@ -3,11 +3,12 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Крестики-нолики · SignalR Online</title>
+    <title>PlayHub · игровая комната онлайн</title>
     <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
 
+    <canvas id="bg-anim"></canvas>
     <canvas id="confetti"></canvas>
 
     <!-- ======================= ЭКРАН 1: О САЙТЕ + ВВОД ИМЕНИ ======================= -->
@@ -17,11 +18,12 @@
                 <span class="logo-x">✕</span><span class="logo-o">◯</span>
             </div>
 
-            <h1>Крестики-нолики <span>online</span></h1>
+            <h1>PlayHub <span>online</span></h1>
             <p class="lead">
-                Игра в реальном времени на <b>ASP.NET Core</b> и <b>SignalR</b>.
-                Создавайте комнаты, играйте, делайте ставки на победителя
-                и зарабатывайте монеты за выигрыш.
+                Общий игровой хаб в реальном времени на <b>ASP.NET Core</b> и <b>SignalR</b>.
+                Сейчас доступна игра <b>крестики-нолики</b>: создавайте комнаты,
+                играйте, делайте ставки на победителя и зарабатывайте монеты.
+                Скоро здесь появятся и другие игры.
             </p>
 
             <ul class="about">
@@ -51,7 +53,7 @@
     <section id="screen-lobby" class="screen">
 
         <header class="topbar">
-            <div class="brand"><span class="logo-x">✕</span><span class="logo-o">◯</span> Tic-Tac-Toe Hub</div>
+            <div class="brand"><span class="logo-x">✕</span><span class="logo-o">◯</span> PlayHub</div>
             <div class="topbar-info">
                 <span class="chip"><i id="conn-dot" class="dot"></i> <span id="conn-text">подключение…</span></span>
                 <span class="chip">Онлайн: <b id="online-count">0</b></span>
@@ -64,9 +66,10 @@
 
             <!-- ЛЕВАЯ КОЛОНКА: комнаты -->
             <aside class="panel">
-                <h2 class="panel-title">Комнаты</h2>
+                <h2 class="panel-title">Комнаты · крестики-нолики</h2>
                 <form id="create-room-form" autocomplete="off">
                     <input id="room-name-input" type="text" maxlength="24" placeholder="Название комнаты" />
+                    <input id="room-password-input" type="password" maxlength="32" placeholder="Пароль (необязательно)" />
                     <button id="create-room-button" class="btn primary small" type="submit">+ Создать</button>
                 </form>
                 <ul id="rooms-list" class="rooms"></ul>
@@ -99,10 +102,32 @@
                     </tbody>
                 </table>
 
+                <h2 class="panel-title">🏆 Работник месяца</h2>
+                <p class="hint" id="employee-of-month">Пока нет действий модерации.</p>
+                <table class="leaders">
+                    <thead>
+                        <tr><th>#</th><th>Модератор</th><th>Баны</th><th>Кики</th><th>Всего</th></tr>
+                    </thead>
+                    <tbody id="mod-stats-body">
+                        <tr><td colspan="5" class="empty">Статистики пока нет.</td></tr>
+                    </tbody>
+                </table>
+
+                <h2 class="panel-title">💰 Балансы пользователей</h2>
+                <table class="leaders">
+                    <thead>
+                        <tr><th>#</th><th>Имя</th><th>Баланс</th></tr>
+                    </thead>
+                    <tbody id="balances-body">
+                        <tr><td colspan="3" class="empty">Пока пусто.</td></tr>
+                    </tbody>
+                </table>
+
                 <!-- Панель модератора -->
                 <div id="mod-panel" hidden>
                     <h2 class="panel-title">🛡 Панель модератора</h2>
                     <p class="hint">Кнопки кика/бана есть у каждого пользователя в списке онлайн.</p>
+
                     <form id="unban-form" autocomplete="off">
                         <input id="unban-input" type="text" maxlength="16" placeholder="Имя для разбана" />
                         <button id="unban-button" class="btn ghost small" type="submit">Разбанить</button>
@@ -214,6 +239,22 @@
 
     <!-- Всплывающие сообщения -->
     <div id="toast" class="toast"></div>
+
+    <!-- Модалка пароля комнаты -->
+    <div id="room-password-modal" class="banner">
+        <div class="banner-card">
+            <h2>🔒 Комната с паролем</h2>
+            <p id="room-password-text">Введите пароль, чтобы войти.</p>
+            <p id="room-password-error" class="password-error" hidden>❌ Неверный пароль. Попробуйте ещё раз.</p>
+            <form id="room-password-form" autocomplete="off">
+                <input id="room-enter-password-input" type="password" maxlength="32" placeholder="Пароль комнаты" required />
+                <div class="modal-actions">
+                    <button id="room-password-cancel" class="btn ghost" type="button">Отмена</button>
+                    <button id="room-password-submit" class="btn primary" type="submit">Войти</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <!-- Большой баннер результата -->
     <div id="banner" class="banner">

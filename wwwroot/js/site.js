@@ -123,6 +123,11 @@ function registerHandlers() {
     connection.on("RoomUpdated", (snapshot) => {
         if (!snapshot) return;
         roomState = snapshot;
+        // успешный вход в закрытую комнату — закрываем модалку пароля
+        pendingRoomId = "";
+        $("room-password-error").hidden = true;
+        $("room-password-modal").className = "banner";
+        showScreen("room");
         renderRoom(snapshot);
     });
 
@@ -135,6 +140,23 @@ function registerHandlers() {
         roomState = null;
         showScreen("lobby");
         showToast(message, "error");
+    });
+
+    // комната требует пароль — показываем модалку
+    connection.on("RoomPasswordRequired", (info) => {
+        const wrongAttempt = pendingRoomId === info.roomId;
+        pendingRoomId = info.roomId;
+        $("room-password-text").textContent = `Комната «${info.roomName}» закрыта паролем. Введите его, чтобы войти.`;
+        $("room-password-error").hidden = !wrongAttempt;
+        $("room-enter-password-input").value = "";
+        $("room-password-modal").className = "banner show";
+        if (wrongAttempt) {
+            const card = $("room-password-modal").querySelector(".banner-card");
+            card.classList.remove("shake");
+            void card.offsetWidth;
+            card.classList.add("shake");
+        }
+        $("room-enter-password-input").focus();
     });
 
     connection.on("BalanceUpdated", (balance) => {
@@ -209,11 +231,31 @@ $("create-room-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!connection) return;
     const name = $("room-name-input").value.trim();
+    const password = $("room-password-input").value;
     try {
-        await connection.invoke("CreateRoom", name);
+        await connection.invoke("CreateRoom", name, password);
         $("room-name-input").value = "";
+        $("room-password-input").value = "";
         showScreen("room");
     } catch (err) { console.error(err); }
+});
+
+// ------------------------------------------------------------ пароль комнаты
+let pendingRoomId = "";
+
+$("room-password-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!connection || !pendingRoomId) return;
+    const password = $("room-enter-password-input").value;
+    try {
+        await connection.invoke("JoinRoom", pendingRoomId, password);
+    } catch (err) { console.error(err); }
+});
+
+$("room-password-cancel").addEventListener("click", () => {
+    pendingRoomId = "";
+    $("room-password-error").hidden = true;
+    $("room-password-modal").className = "banner";
 });
 
 $("unban-form").addEventListener("submit", async (e) => {
@@ -311,6 +353,10 @@ function renderLobby(s) {
     renderUsers(s.users || []);
     renderLeaders(s.leaderboard || []);
 
+    // таблицы видны всем пользователям
+    renderModStats();
+    renderBalances();
+
     if (isModerator) renderBanned();
 }
 
@@ -333,17 +379,16 @@ function renderRooms(rooms) {
         const info = document.createElement("div");
         info.className = "room-info";
         info.innerHTML =
-            `<div class="room-name">${escapeHtml(r.name)} ${r.inGame ? '<span class="live">идёт игра</span>' : ""}</div>` +
+            `<div class="room-name">${r.hasPassword ? "🔒 " : ""}${escapeHtml(r.name)} ${r.inGame ? '<span class="live">идёт игра</span>' : ""}</div>` +
             `<div class="room-sub">хост: ${escapeHtml(r.hostName)} · ✕/◯: ${r.playersCount} · 👁: ${r.spectatorsCount}` +
             (r.potX + r.potO > 0 ? ` · банк ставок: ${r.potX + r.potO}💰` : "") + `</div>`;
 
         const join = document.createElement("button");
         join.className = "btn primary small";
-        join.textContent = "Войти";
+        join.textContent = r.hasPassword ? "🔒 Войти" : "Войти";
         join.addEventListener("click", async () => {
             try {
-                await connection.invoke("JoinRoom", r.id);
-                showScreen("room");
+                await connection.invoke("JoinRoom", r.id, null);
             } catch (err) { console.error(err); }
         });
 
@@ -440,6 +485,53 @@ function renderLeaders(rows) {
     });
 }
 
+// --------------------------------------------------- таблицы модератора
+
+/** Работник месяца: модератор с наибольшей суммой банов и киков. */
+async function renderModStats() {
+    const body = $("mod-stats-body");
+    const headline = $("employee-of-month");
+    try {
+        const stats = await connection.invoke("GetModeratorStats");
+        body.innerHTML = "";
+        if (!stats.length || stats[0].total === 0) {
+            headline.textContent = "Пока нет действий модерации.";
+            body.innerHTML = `<tr><td colspan="5" class="empty">Статистики пока нет.</td></tr>`;
+            return;
+        }
+        const best = stats[0];
+        headline.innerHTML = `🏆 <b>${escapeHtml(best.name)}</b> — ${best.bans} бан(ов), ${best.kicks} кик(ов), всего ${best.total} действий.`;
+        stats.forEach((s, i) => {
+            const tr = document.createElement("tr");
+            if (i === 0) tr.className = "top1";
+            if (s.name.toLowerCase() === myName.toLowerCase()) tr.className += " me";
+            tr.innerHTML = `<td>${i + 1}</td><td>${escapeHtml(s.name)}</td><td>${s.bans}</td>` +
+                `<td>${s.kicks}</td><td>${s.total}</td>`;
+            body.appendChild(tr);
+        });
+    } catch (err) { console.error(err); }
+}
+
+/** Таблица балансов всех пользователей. */
+async function renderBalances() {
+    const body = $("balances-body");
+    try {
+        const balances = await connection.invoke("GetBalances");
+        body.innerHTML = "";
+        if (!balances.length) {
+            body.innerHTML = `<tr><td colspan="3" class="empty">Пока пусто.</td></tr>`;
+            return;
+        }
+        balances.forEach((b, i) => {
+            const tr = document.createElement("tr");
+            if (i === 0) tr.className = "top1";
+            if (b.name.toLowerCase() === myName.toLowerCase()) tr.className += " me";
+            tr.innerHTML = `<td>${i + 1}</td><td>${escapeHtml(b.name)}</td><td>💰 ${b.balance}</td>`;
+            body.appendChild(tr);
+        });
+    } catch (err) { console.error(err); }
+}
+
 // ============================================================ отрисовка: комната
 
 function renderRoom(s) {
@@ -448,7 +540,7 @@ function renderRoom(s) {
     const me = s.players.concat(s.spectators).find((p) => p.connectionId === myId);
     if (me) mySide = me.side;
 
-    $("room-title").textContent = s.roomName;
+    $("room-title").textContent = (s.hasPassword ? "🔒 " : "") + s.roomName;
     $("room-my-name").textContent = myName + (isModerator ? " 🛡" : "");
     $("delete-room-button").hidden = !(s.isHost || isModerator);
     setConnection(true, "онлайн");
@@ -741,3 +833,209 @@ function tick() {
         rafId = null;
     }
 }
+
+// ============================================================ фоновая анимация
+// Плавающие иконки крестиков-ноликов и мини-поля сапёра на свободном фоне.
+
+(function backgroundAnimation() {
+    const bgCanvas = $("bg-anim");
+    if (!bgCanvas) return;
+    const bgCtx = bgCanvas.getContext("2d");
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    const C = { x: "56,225,255", o: "255,179,71", accent: "124,92,255", mine: "255,107,129", ok: "61,220,151" };
+    let icons = [];
+    let W = 0, H = 0;
+
+    /** Свободные зоны фона: края экрана, полоса под топбаром и низ страницы. */
+    function freeRects() {
+        const spots = [];
+        const panels = Array.from(document.querySelectorAll(".screen.active .panel, .screen.active .join-card"))
+            .map((el) => el.getBoundingClientRect())
+            .filter((r) => r.width > 0 && r.height > 0);
+        const margin = 12;
+        const overlaps = (x, y, s) => panels.some((p) =>
+            x + s > p.left - margin && x - s < p.right + margin &&
+            y + s > p.top - margin && y - s < p.bottom + margin);
+
+        const step = 80;
+        for (let x = 36; x < W - 36; x += step) {
+            for (let y = 36; y < H - 36; y += step) {
+                if (!overlaps(x, y, 38)) spots.push({ x, y });
+            }
+        }
+
+        // если панели заняли весь экран — размещаем иконки по самым краям,
+        // где они лишь слегка заходят под полупрозрачные карточки
+        if (spots.length < 6) {
+            const edge = 22;
+            for (let x = 60; x < W - 40; x += 130) {
+                spots.push({ x, y: edge + Math.random() * 14 });
+                spots.push({ x: x + 60, y: H - edge - Math.random() * 14 });
+            }
+            for (let y = 90; y < H - 60; y += 150) {
+                spots.push({ x: edge, y });
+                spots.push({ x: W - edge, y: y + 70 });
+            }
+        }
+        return spots;
+    }
+
+    function makeIcon(spot) {
+        const roll = Math.random();
+        const type = roll < 0.34 ? "x" : roll < 0.68 ? "o" : "mine";
+        const icon = {
+            type,
+            x: spot.x + (Math.random() - 0.5) * 24,
+            y: spot.y + (Math.random() - 0.5) * 24,
+            size: type === "mine" ? 24 + Math.random() * 10 : 16 + Math.random() * 12,
+            vx: (Math.random() - 0.5) * 0.22,
+            vy: (Math.random() - 0.5) * 0.22,
+            angle: (Math.random() - 0.5) * 0.5,
+            spin: (Math.random() - 0.5) * 0.0022,
+            phase: Math.random() * Math.PI * 2,
+            alpha: 0.10 + Math.random() * 0.14,
+            // мини-поле сапёра 3×3: одна мина, пара чисел, остальное закрыто
+            cells: null
+        };
+        if (type === "mine") {
+            icon.cells = Array.from({ length: 9 }, () => ({ state: "closed", n: 0 }));
+            const mineIdx = Math.floor(Math.random() * 9);
+            icon.cells[mineIdx].state = "mine";
+            const openCount = 2 + Math.floor(Math.random() * 3);
+            for (let k = 0; k < openCount; k++) {
+                const idx = Math.floor(Math.random() * 9);
+                if (icon.cells[idx].state === "closed") {
+                    icon.cells[idx].state = "open";
+                    icon.cells[idx].n = 1 + Math.floor(Math.random() * 2);
+                }
+            }
+            if (Math.random() < 0.5) {
+                const idx = Math.floor(Math.random() * 9);
+                if (icon.cells[idx].state === "closed") icon.cells[idx].state = "flag";
+            }
+        }
+        return icon;
+    }
+
+    function rebuild() {
+        W = bgCanvas.width = window.innerWidth;
+        H = bgCanvas.height = window.innerHeight;
+        const spots = freeRects();
+        const count = Math.min(26, spots.length);
+        icons = [];
+        // перемешиваем свободные точки и берём нужное количество
+        for (let i = spots.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [spots[i], spots[j]] = [spots[j], spots[i]];
+        }
+        for (let i = 0; i < count; i++) icons.push(makeIcon(spots[i]));
+        // статичный кадр сразу: иконки видны даже если анимация приостановлена
+        drawFrame(performance.now());
+    }
+
+    function drawX(icon, glow) {
+        const s = icon.size / 2;
+        bgCtx.strokeStyle = `rgba(${C.x},${icon.alpha + glow})`;
+        bgCtx.lineWidth = Math.max(2.5, icon.size * 0.14);
+        bgCtx.lineCap = "round";
+        bgCtx.beginPath();
+        bgCtx.moveTo(-s, -s); bgCtx.lineTo(s, s);
+        bgCtx.moveTo(s, -s); bgCtx.lineTo(-s, s);
+        bgCtx.stroke();
+    }
+
+    function drawO(icon, glow) {
+        bgCtx.strokeStyle = `rgba(${C.o},${icon.alpha + glow})`;
+        bgCtx.lineWidth = Math.max(2.5, icon.size * 0.14);
+        bgCtx.beginPath();
+        bgCtx.arc(0, 0, icon.size / 2, 0, Math.PI * 2);
+        bgCtx.stroke();
+    }
+
+    function drawMine(icon, glow) {
+        const cell = icon.size / 3;
+        const half = icon.size / 2;
+        for (let i = 0; i < 9; i++) {
+            const cx = -half + (i % 3) * cell;
+            const cy = -half + Math.floor(i / 3) * cell;
+            const c = icon.cells[i];
+            const pad = 1.2;
+            if (c.state === "closed" || c.state === "flag") {
+                bgCtx.fillStyle = `rgba(${C.accent},${icon.alpha + glow})`;
+                bgCtx.fillRect(cx + pad, cy + pad, cell - pad * 2, cell - pad * 2);
+                if (c.state === "flag") {
+                    bgCtx.fillStyle = `rgba(${C.mine},${icon.alpha * 2.4 + glow})`;
+                    bgCtx.beginPath();
+                    bgCtx.moveTo(cx + cell * 0.35, cy + cell * 0.22);
+                    bgCtx.lineTo(cx + cell * 0.75, cy + cell * 0.38);
+                    bgCtx.lineTo(cx + cell * 0.35, cy + cell * 0.54);
+                    bgCtx.closePath();
+                    bgCtx.fill();
+                }
+            } else {
+                bgCtx.strokeStyle = `rgba(255,255,255,${icon.alpha * 0.7 + glow})`;
+                bgCtx.lineWidth = 1;
+                bgCtx.strokeRect(cx + pad, cy + pad, cell - pad * 2, cell - pad * 2);
+                if (c.state === "mine") {
+                    bgCtx.fillStyle = `rgba(${C.mine},${icon.alpha * 2.2 + glow})`;
+                    bgCtx.beginPath();
+                    bgCtx.arc(cx + cell / 2, cy + cell / 2, cell * 0.22, 0, Math.PI * 2);
+                    bgCtx.fill();
+                } else if (c.n > 0) {
+                    bgCtx.fillStyle = c.n === 1
+                        ? `rgba(${C.x},${icon.alpha * 2.4 + glow})`
+                        : `rgba(${C.ok},${icon.alpha * 2.4 + glow})`;
+                    bgCtx.font = `700 ${Math.round(cell * 0.6)}px "Segoe UI", sans-serif`;
+                    bgCtx.textAlign = "center";
+                    bgCtx.textBaseline = "middle";
+                    bgCtx.fillText(String(c.n), cx + cell / 2, cy + cell / 2 + 1);
+                }
+            }
+        }
+    }
+
+    function drawFrame(time) {
+        bgCtx.clearRect(0, 0, W, H);
+        icons.forEach((icon) => {
+            const glow = Math.sin(time / 1600 + icon.phase) * 0.05;
+            bgCtx.save();
+            bgCtx.translate(icon.x, icon.y + Math.sin(time / 2400 + icon.phase) * 6);
+            bgCtx.rotate(icon.angle);
+            if (icon.type === "x") drawX(icon, glow);
+            else if (icon.type === "o") drawO(icon, glow);
+            else drawMine(icon, glow);
+            bgCtx.restore();
+        });
+    }
+
+    function loop(time) {
+        icons.forEach((icon) => {
+            icon.x += icon.vx;
+            icon.y += icon.vy;
+            icon.angle += icon.spin;
+            // мягко разворачиваем иконку у краёв экрана
+            if (icon.x < 30 || icon.x > W - 30) icon.vx *= -1;
+            if (icon.y < 30 || icon.y > H - 30) icon.vy *= -1;
+        });
+        drawFrame(time);
+        requestAnimationFrame(loop);
+    }
+
+    let resizeTimer = null;
+    window.addEventListener("resize", () => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(rebuild, 250);
+    });
+
+    // при смене экрана свободные зоны меняются — пересобираем иконки
+    const observer = new MutationObserver(() => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(rebuild, 350);
+    });
+    document.querySelectorAll(".screen").forEach((s) =>
+        observer.observe(s, { attributes: true, attributeFilter: ["class"] }));
+
+    rebuild();
+    if (!reduceMotion) requestAnimationFrame(loop);
+})();

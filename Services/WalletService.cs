@@ -1,4 +1,6 @@
-namespace TicTacToeSignalR.Services;
+using PlayHub.Models;
+
+namespace PlayHub.Services;
 
 /// <summary>
 /// Балансы пользователей в текстовом файле App_Data/wallets.txt.
@@ -60,6 +62,19 @@ public class WalletService
             _balances[name] = balance - amount;
             Save();
             return true;
+        }
+    }
+
+    /// <summary>Все балансы для таблицы модератора, от богатых к бедным.</summary>
+    public List<BalanceEntryDto> GetAllBalances()
+    {
+        lock (_lock)
+        {
+            return _balances
+                .Select(kv => new BalanceEntryDto { Name = kv.Key, Balance = kv.Value })
+                .OrderByDescending(e => e.Balance)
+                .ThenBy(e => e.Name)
+                .ToList();
         }
     }
 

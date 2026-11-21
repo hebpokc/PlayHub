@@ -1,4 +1,4 @@
-namespace TicTacToeSignalR.Models;
+namespace PlayHub.Models;
 
 /// <summary>
 /// Одно сообщение в чате лобби.
