@@ -921,6 +921,14 @@ function tick() {
     function rebuild() {
         W = bgCanvas.width = window.innerWidth;
         H = bgCanvas.height = window.innerHeight;
+
+        // на экране входа свой фон — портал; плавающие иконки только в лобби и комнате
+        if ($("screen-join").classList.contains("active")) {
+            icons = [];
+            bgCtx.clearRect(0, 0, W, H);
+            return;
+        }
+
         const spots = freeRects();
         const count = Math.min(26, spots.length);
         icons = [];

@@ -13,9 +13,32 @@
 
     <!-- ======================= ЭКРАН 1: О САЙТЕ + ВВОД ИМЕНИ ======================= -->
     <section id="screen-join" class="screen active">
-        <div class="card join-card">
-            <div class="logo">
-                <span class="logo-x">✕</span><span class="logo-o">◯</span>
+        <div class="join-layout">
+
+            <!-- Портал входа: светящееся кольцо с орбитами игровых символов -->
+            <div class="portal" aria-hidden="true">
+                <div class="portal-ring"></div>
+                <div class="portal-ring inner"></div>
+                <div class="portal-core">
+                    <span class="core-flip">
+                        <span class="core-face core-xo"><b class="logo-x">✕</b><b class="logo-o">◯</b></span>
+                        <span class="core-face core-mine">💣</span>
+                    </span>
+                </div>
+                <div class="orbit o1"><span class="orbit-icon">🎮</span></div>
+                <div class="orbit o2"><span class="orbit-icon">🎯</span></div>
+                <div class="orbit o3"><span class="orbit-icon">🎲</span></div>
+                <div class="orbit o4"><span class="orbit-icon">🏆</span></div>
+                <div class="orbit o5"><span class="orbit-icon">⭐</span></div>
+                <div class="orbit o6"><span class="orbit-icon">🕹️</span></div>
+                <div class="orbit o7"><span class="orbit-icon">💎</span></div>
+                <div class="orbit o8"><span class="orbit-icon">🎰</span></div>
+            </div>
+
+            <div class="card join-card">
+            <div class="logo logo-swap" aria-hidden="true">
+                <span class="logo-face face-xo"><span class="logo-x">✕</span><span class="logo-o">◯</span></span>
+                <span class="logo-face face-mine">💣</span>
             </div>
 
             <h1>PlayHub <span>online</span></h1>
@@ -46,6 +69,7 @@
             </form>
 
             <p id="join-status" class="status"></p>
+            </div>
         </div>
     </section>
 
@@ -53,7 +77,7 @@
     <section id="screen-lobby" class="screen">
 
         <header class="topbar">
-            <div class="brand"><span class="logo-x">✕</span><span class="logo-o">◯</span> PlayHub</div>
+            <div class="brand"><span class="brand-swap" aria-hidden="true"><span class="brand-face face-xo"><span class="logo-x">✕</span><span class="logo-o">◯</span></span><span class="brand-face face-mine">💣</span></span> PlayHub</div>
             <div class="topbar-info">
                 <span class="chip"><i id="conn-dot" class="dot"></i> <span id="conn-text">подключение…</span></span>
                 <span class="chip">Онлайн: <b id="online-count">0</b></span>
@@ -176,7 +200,13 @@
                     </button>
                 </div>
 
-                <h2 class="panel-title">Ставки наблюдателей</h2>
+                <h2 class="panel-title bet-title">
+                    <span class="bet-coin" aria-hidden="true">
+                        <span class="bet-coin-face front">💰</span>
+                        <span class="bet-coin-face back">✕</span>
+                    </span>
+                    Ставки наблюдателей
+                </h2>
                 <div id="betting-box" class="betting-box">
                     <p class="hint" id="bet-hint">Ставка на победу игрока до начала матча. Угадали — ×2, нет — ставка сгорает.</p>
                     <div class="bet-row">
