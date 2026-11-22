@@ -53,6 +53,12 @@ public class MinePlayerState
     /// <summary>Кинотеатр: подорвался и выбыл.</summary>
     public bool IsOut { get; set; }
 
+    /// <summary>
+    /// Асим: террорист после расстановки — в партии, но не играет и не выбывает
+    /// (он знает расположение мин, поэтому только наблюдает).
+    /// </summary>
+    public bool IsSpectating { get; set; }
+
     /// <summary>Асимметричный режим: сейчас террорист (расставляет мины).</summary>
     public bool IsTerrorist { get; set; }
 
@@ -127,6 +133,12 @@ public class MineGameState
     /// <summary>Асим: номер партии для чередования ролей.</summary>
     public int RoundNumber { get; set; }
 
+    /// <summary>
+    /// Одиночка: до этого момента место игрока зарезервировано за хостом.
+    /// Null — резерв не действует (хост уже играет или время вышло).
+    /// </summary>
+    public DateTime? HostSeatReservedUntil { get; set; }
+
     public MinePlayerState? Find(string connectionId) =>
         Participants.FirstOrDefault(p => p.ConnectionId == connectionId);
 
@@ -160,6 +172,7 @@ public class MineParticipantDto
     public int Score { get; set; }
     public int Ante { get; set; }
     public bool IsOut { get; set; }
+    public bool IsSpectating { get; set; }
     public bool IsTerrorist { get; set; }
     public bool IsReady { get; set; }
 }
@@ -215,6 +228,15 @@ public class MineSnapshot
 
     /// <summary>Сколько мин ещё не помечено (счётчик флажков).</summary>
     public int FlagsLeft { get; set; }
+
+    /// <summary>Асим: сколько мин уже расставил террорист.</summary>
+    public int MinesPlacedByTerrorist { get; set; }
+
+    /// <summary>Одиночка: место зарезервировано за хостом ещё N секунд.</summary>
+    public int HostSeatSecondsLeft { get; set; }
+
+    /// <summary>Кинотеатр: сколько игроков ещё нужно до старта.</summary>
+    public int PlayersNeeded { get; set; }
 
     /// <summary>Мой лучший результат (одиночка).</summary>
     public MineRecordDto? MyRecord { get; set; }

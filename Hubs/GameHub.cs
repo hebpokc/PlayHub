@@ -67,6 +67,12 @@ public class GameHub : Hub
 
     public async Task CreateRoom(string? roomName, string? password)
     {
+        if (_lobby.RoomNameTaken(roomName ?? ""))
+        {
+            await Clients.Caller.SendAsync("ServerError", "Комната с таким названием уже существует.");
+            return;
+        }
+
         var room = _lobby.CreateRoom(Context.ConnectionId, roomName ?? "", password);
         await Groups.AddToGroupAsync(Context.ConnectionId, RoomGroup(room.Id));
         await SendSystemMessage($"{_lobby.GetName(Context.ConnectionId)} создал комнату «{room.Name}»" +
@@ -79,8 +85,15 @@ public class GameHub : Hub
     /// <summary>Создать комнату сапёра: режим, сложность, ante.</summary>
     public async Task CreateMineRoom(string? roomName, string? password, string? mode, string? difficulty, int ante)
     {
+        if (_lobby.RoomNameTaken(roomName ?? ""))
+        {
+            await Clients.Caller.SendAsync("ServerError", "Комната с таким названием уже существует.");
+            return;
+        }
+
         var room = _lobby.CreateMineRoom(Context.ConnectionId, roomName ?? "", password,
             mode ?? "solo", difficulty ?? "easy", ante);
+        if (room.Mine!.Mode == Models.MineMode.Solo) _mines.ReserveHostSeat(room);
         await Groups.AddToGroupAsync(Context.ConnectionId, RoomGroup(room.Id));
         await SendSystemMessage($"{_lobby.GetName(Context.ConnectionId)} создал комнату сапёра «{room.Name}» 💣" +
             (room.Password != "" ? " 🔒" : ""));
@@ -521,6 +534,12 @@ public class GameHub : Hub
 
         if (_lobby.Players.TryGetValue(connectionId ?? "", out var target))
         {
+            if (target.IsModerator)
+            {
+                await Clients.Caller.SendAsync("ServerError", "Нельзя кикнуть другого модератора.");
+                return;
+            }
+
             var moderator = _lobby.GetPlayer(Context.ConnectionId);
             if (moderator != null) _moderation.RecordAction(moderator.Name, "kick");
 
@@ -540,6 +559,12 @@ public class GameHub : Hub
 
         if (_lobby.Players.TryGetValue(connectionId ?? "", out var target))
         {
+            if (target.IsModerator)
+            {
+                await Clients.Caller.SendAsync("ServerError", "Нельзя забанить другого модератора.");
+                return;
+            }
+
             var moderator = _lobby.GetPlayer(Context.ConnectionId);
             if (_moderation.Ban(target.Name) && moderator != null)
                 _moderation.RecordAction(moderator.Name, "ban");

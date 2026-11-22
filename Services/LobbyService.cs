@@ -137,6 +137,14 @@ public class LobbyService
 
     // --------------------------------------------------------------- комнаты
 
+    /// <summary>Занято ли имя комнаты (сравнение без учёта регистра).</summary>
+    public bool RoomNameTaken(string roomName)
+    {
+        var clean = CleanRoomName(roomName);
+        return Rooms.Values.Any(r =>
+            string.Equals(r.Name, clean, StringComparison.OrdinalIgnoreCase));
+    }
+
     public Room CreateRoom(string connectionId, string roomName, string? password)
     {
         var player = GetPlayer(connectionId);
@@ -218,9 +226,11 @@ public class LobbyService
                 return;
             }
 
-            if (room.Game.PlayerXId == connectionId) room.Game.PlayerXId = "";
-            if (room.Game.PlayerOId == connectionId) room.Game.PlayerOId = "";
-            ResetBoard(room);
+            var wasX = room.Game.PlayerXId == connectionId;
+            var wasO = room.Game.PlayerOId == connectionId;
+            if (wasX) room.Game.PlayerXId = "";
+            if (wasO) room.Game.PlayerOId = "";
+            if (wasX || wasO) ResetBoard(room); // уход наблюдателя не трогает матч
             room.Bets.RemoveAll(b => b.ConnectionId == connectionId);
 
             // отсчёт 5 минут неактивности начинается с ухода последнего участника
@@ -595,7 +605,18 @@ public class LobbyService
         var changed = new List<Room>();
         foreach (var room in Rooms.Values)
         {
-            if (room.GameType == "minesweeper" && _mines.Tick(room))
+            if (room.GameType != "minesweeper") continue;
+
+            // истёк резерв места хоста в одиночке — уведомляем комнату
+            if (room.Mine is { IsStarted: false, HostSeatReservedUntil: { } deadline } &&
+                DateTime.UtcNow >= deadline)
+            {
+                lock (room.Sync) room.Mine.HostSeatReservedUntil = null;
+                changed.Add(room);
+                continue;
+            }
+
+            if (_mines.Tick(room))
                 changed.Add(room);
         }
         return changed;

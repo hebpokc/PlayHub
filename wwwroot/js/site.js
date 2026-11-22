@@ -208,6 +208,7 @@ function registerHandlers() {
     });
 
     connection.on("MineGameFinished", (result) => {
+        const solo = mineState && mineState.mode === "solo";
         if (result.isDraw) {
             showBanner("Ничья!", "Сапёр: ничья — ставки возвращены.");
         } else if (result.winnerId === myId) {
@@ -216,9 +217,11 @@ function registerHandlers() {
                 : "Поле разминировано — рекорд записан!");
             confetti(220);
         } else if (result.winnerName) {
-            showBanner(`${result.winnerName} победил!`, result.payout > 0
-                ? `Банк ${result.payout} монет уходит победителю. Реванш?`
-                : "Реванш?");
+            showBanner(`${result.winnerName} победил!`, solo
+                ? "Партия окончена — рекорд игрока записан в таблицу."
+                : result.payout > 0
+                    ? `Банк ${result.payout} монет уходит победителю. Реванш?`
+                    : "Реванш?");
             confetti(70);
         } else {
             showBanner("Партия окончена", "Поле открыто — посмотрите, где были мины.");
@@ -721,9 +724,49 @@ function formatTime(totalSeconds) {
 // ============================================================ отрисовка: сапёр
 
 let mineFieldKey = "";      // размер поля, чтобы не пересоздавать DOM каждый кадр
+let mineTurnDeadlineAt = 0; // локальный дедлайн хода (мс) — тикаем между снимками
+let mineHostSeatAt = 0;     // локальный дедлайн резерва места хоста (мс)
+
+// локальный тик таймеров сапёра: сервер шлёт снимки только при изменениях,
+// поэтому секунды хода/расстановки и резерв хоста убываем сами
+setInterval(() => {
+    const s = mineState;
+    if (!s || s.isFinished) return;
+
+    if (s.isStarted && !s.isFinished && s.turnSecondsLeft != null && mineTurnDeadlineAt > 0) {
+        const sec = Math.max(0, Math.ceil((mineTurnDeadlineAt - Date.now()) / 1000));
+        const chip = $("mine-turn-seconds");
+        chip.textContent = `· ${sec}с`;
+        chip.className = sec <= 5 ? "urgent" : "";
+    }
+
+    if (!s.isStarted && s.hostSeatSecondsLeft > 0 && mineHostSeatAt > 0) {
+        const left = Math.max(0, Math.ceil((mineHostSeatAt - Date.now()) / 1000));
+        const join = $("mine-join-button");
+        const seat = s.participants.some((p) => p.connectionId === myId);
+        if (!seat && left > 0 && !s.isHost) {
+            join.disabled = true;
+            join.textContent = `⏳ Место хоста · ${left}с`;
+        } else {
+            join.disabled = false;
+            join.textContent = "🎮 Сесть играть";
+        }
+    }
+
+    // секундомер партии тикает локально (сервер обновляет только при ходах)
+    if (s.isStarted && !s.isFinished) {
+        $("mine-timer").textContent = formatTime(s.elapsedSeconds + Math.floor((Date.now() - mineSnapshotAt) / 1000));
+    }
+}, 500);
+
+let mineSnapshotAt = Date.now();
 
 function renderMine(s) {
     if (!s) return;
+
+    mineSnapshotAt = Date.now();
+    mineTurnDeadlineAt = s.turnSecondsLeft != null ? Date.now() + s.turnSecondsLeft * 1000 : 0;
+    mineHostSeatAt = s.hostSeatSecondsLeft > 0 ? Date.now() + s.hostSeatSecondsLeft * 1000 : 0;
 
     $("mine-room-title").textContent = (s.hasPassword ? "🔒 " : "") + s.roomName;
     $("mine-my-name").textContent = myName + (isModerator ? " 🛡" : "");
@@ -740,7 +783,13 @@ function renderMine(s) {
         (s.mode !== "solo" ? ` · ante от ${s.ante}💰` : " · без ставок");
 
     // --- кнопки управления
-    $("mine-join-button").hidden = !!me || (s.isStarted && !s.isFinished);
+    const seatTaken = !!me;
+    const hostReserve = !s.isStarted && !seatTaken && !s.isHost && s.hostSeatSecondsLeft > 0;
+    $("mine-join-button").hidden = seatTaken || (s.isStarted && !s.isFinished);
+    $("mine-join-button").disabled = hostReserve;
+    $("mine-join-button").textContent = hostReserve
+        ? `⏳ Место хоста · ${s.hostSeatSecondsLeft}с`
+        : "🎮 Сесть играть";
     $("mine-leave-button").hidden = !me || (s.isStarted && !s.isFinished);
     $("mine-ante-row").hidden = !me || s.mode === "solo" || s.isStarted || (me && me.ante > 0);
     $("mine-ready-button").hidden = !me || s.isStarted;
@@ -752,7 +801,12 @@ function renderMine(s) {
     $("mine-restart-button").hidden = !s.isFinished || !me;
 
     // --- статусная строка
-    $("mine-flags-left").textContent = s.flagsLeft;
+    // при расстановке показываем, сколько мин осталось поставить террористу
+    const placingPhase = s.isPlacing && !s.isFinished;
+    $("mine-flags-left").textContent = placingPhase
+        ? Math.max(0, s.mineCount - (s.minesPlacedByTerrorist || 0))
+        : s.flagsLeft;
+    $("mine-flags-label").textContent = placingPhase ? "Мин осталось:" : "💣 Мин:";
     $("mine-timer").textContent = formatTime(s.elapsedSeconds);
     $("mine-turn-chip").hidden = !s.isStarted || s.isFinished || s.mode === "solo";
     if (s.isStarted && !s.isFinished && s.mode !== "solo") {
@@ -774,9 +828,15 @@ function renderMine(s) {
                 ? `Победа: <b>${escapeHtml(s.winnerName)}</b> 🎉` + (s.winnerPayout > 0 ? ` +${s.winnerPayout}💰` : "")
                 : "Партия окончена.";
     } else if (!s.isStarted) {
-        status.textContent = me
-            ? "Нажмите «Готов», чтобы начать партию."
-            : "Займите место игрока или наблюдайте за партией.";
+        if (s.mode === "cinema" && s.playersNeeded > 0) {
+            status.innerHTML = me
+                ? `Ждём ещё <b>${s.playersNeeded}</b> игрок(а) для старта — затем все нажимают «Готов».`
+                : `Кинотеатр: ждём ещё <b>${s.playersNeeded}</b> игрок(а). Сядьте играть, чтобы участвовать!`;
+        } else if (me) {
+            status.textContent = "Нажмите «Готов», чтобы начать партию.";
+        } else {
+            status.textContent = "Займите место игрока или наблюдайте за партией.";
+        }
     } else if (s.isPlacing) {
         status.innerHTML = placing
             ? "Расставьте мины: <b>левый клик</b> — поставить/снять. Затем «Мины расставлены»."

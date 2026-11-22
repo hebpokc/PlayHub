@@ -25,14 +25,14 @@
                         <span class="core-face core-mine">💣</span>
                     </span>
                 </div>
-                <div class="orbit o1"><span class="orbit-icon">🎮</span></div>
-                <div class="orbit o2"><span class="orbit-icon">🎯</span></div>
-                <div class="orbit o3"><span class="orbit-icon">🎲</span></div>
-                <div class="orbit o4"><span class="orbit-icon">🏆</span></div>
-                <div class="orbit o5"><span class="orbit-icon">⭐</span></div>
-                <div class="orbit o6"><span class="orbit-icon">🕹️</span></div>
-                <div class="orbit o7"><span class="orbit-icon">💎</span></div>
-                <div class="orbit o8"><span class="orbit-icon">🎰</span></div>
+                <div class="orbit o1"><span class="orbit-icon"><span class="orbit-glyph">🎮</span></span></div>
+                <div class="orbit o2 rev"><span class="orbit-icon"><span class="orbit-glyph">🎯</span></span></div>
+                <div class="orbit o3 rev"><span class="orbit-icon"><span class="orbit-glyph">🎲</span></span></div>
+                <div class="orbit o4"><span class="orbit-icon"><span class="orbit-glyph">🏆</span></span></div>
+                <div class="orbit o5 rev"><span class="orbit-icon"><span class="orbit-glyph">⭐</span></span></div>
+                <div class="orbit o6"><span class="orbit-icon"><span class="orbit-glyph">🕹️</span></span></div>
+                <div class="orbit o7 rev"><span class="orbit-icon"><span class="orbit-glyph">💎</span></span></div>
+                <div class="orbit o8"><span class="orbit-icon"><span class="orbit-glyph">🎰</span></span></div>
             </div>
 
             <div class="card join-card">
@@ -43,16 +43,15 @@
 
             <h1>PlayHub <span>online</span></h1>
             <p class="lead">
-                Общий игровой хаб в реальном времени на <b>ASP.NET Core</b> и <b>SignalR</b>.
-                Сейчас доступна игра <b>крестики-нолики</b>: создавайте комнаты,
-                играйте, делайте ставки на победителя и зарабатывайте монеты.
-                Скоро здесь появятся и другие игры.
+                Игровой хаб в реальном времени на <b>ASP.NET Core</b> и <b>SignalR</b>:
+                <b>крестики-нолики</b> и <b>сапёр</b> — от одиночных партий до дуэлей
+                с банком ставок. Создавайте комнаты, играйте, наблюдайте и зарабатывайте монеты.
             </p>
 
             <ul class="about">
                 <li><span>1</span> Введите имя и попадёте в лобби со списком комнат.</li>
-                <li><span>2</span> Создайте комнату или войдите в чужую: играть за <b class="x-color">✕</b> / <b class="o-color">◯</b> или наблюдать.</li>
-                <li><span>3</span> Победа приносит <b>100 монет</b>; наблюдатели ставят деньги на игрока и забирают двойную ставку.</li>
+                <li><span>2</span> Выберите игру: <b class="x-color">✕</b><b class="o-color">◯</b> крестики-нолики или <b>💣</b> сапёр — одиночка, PvP, «Сапёр vs Террорист» и «Кинотеатр» на 3–8 игроков.</li>
+                <li><span>3</span> Победы приносят монеты, игроки вносят ставки в банк, наблюдатели ставят на победителя и забирают двойную ставку.</li>
             </ul>
 
             <form id="join-form" autocomplete="off">
@@ -341,7 +340,7 @@
             <!-- ЦЕНТР: поле -->
             <section class="panel mine-board-panel">
                 <div class="mine-status-row">
-                    <span class="chip">💣 Мин: <b id="mine-flags-left">0</b></span>
+                    <span class="chip"><span id="mine-flags-label">💣 Мин:</span> <b id="mine-flags-left">0</b></span>
                     <span class="chip">⏱ <b id="mine-timer">0:00</b></span>
                     <span class="chip" id="mine-turn-chip" hidden>Ход: <b id="mine-turn-name">—</b> <b id="mine-turn-seconds"></b></span>
                 </div>

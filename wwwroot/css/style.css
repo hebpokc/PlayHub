@@ -181,8 +181,12 @@ code {
     50% { transform: translateY(-8px) scale(1.04); }
 }
 
-/* орбиты: круговые, без сжатия — иконки не деформируются;
-   контейнер вращается, иконка контр-вращается и остаётся вертикальной */
+/* орбиты: два синхронных кольца по 4 иконки с шагом 90° —
+   все иконки кольца движутся с одной угловой скоростью, поэтому
+   равномерный строй сохраняется всегда и кучкование исключено.
+   Позицию задаёт статичный transform контейнера иконки
+   (rotate(--start)·translateX(r)), а глиф внутри контр-вращается
+   через свойство rotate — позиция и выравнивание разделены */
 .orbit {
     position: absolute;
     inset: 0;
@@ -194,8 +198,18 @@ code {
     position: absolute;
     top: 50%;
     left: 50%;
+    width: 0;
+    height: 0;
+    transform: rotate(var(--start, 0deg)) translateX(var(--r, 200px));
+}
+.orbit-glyph {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform: translate(-50%, -50%);
     font-size: var(--size, 34px);
-    transform: rotate(var(--start, 0deg)) translateX(var(--r, 200px)) translate(-50%, -50%);
+    line-height: 1;
+    display: block;
     animation: orbitCounter var(--dur, 16s) linear infinite;
     animation-delay: var(--delay, 0s);
     filter: drop-shadow(0 0 12px rgba(124,92,255,.55));
@@ -205,29 +219,44 @@ code {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
 }
-/* rotate применяется после transform: R(-t-start)·R(start)·T(r) = T(r) —
-   позиция движется по окружности, а сам символ не поворачивается */
+/* контр-вращение глифа: R(-t)·R(start)·T(r) — позиция движется по
+   окружности вместе с контейнером, глиф всегда стоит вертикально */
 @keyframes orbitCounter {
-    from { rotate: calc(-1 * var(--start, 0deg)); }
-    to { rotate: calc(-1 * var(--start, 0deg) - 360deg); }
+    from { rotate: 0deg; }
+    to { rotate: -360deg; }
 }
 
-.orbit.o1 { --dur: 13s; --delay: -2s; }
-.orbit.o1 .orbit-icon { --r: 41cqw; --start: 0deg; --size: 38px; }
-.orbit.o2 { --dur: 17s; --delay: -7s; }
-.orbit.o2 .orbit-icon { --r: 46cqw; --start: 45deg; --size: 32px; }
-.orbit.o3 { --dur: 11s; --delay: -4s; }
-.orbit.o3 .orbit-icon { --r: 36cqw; --start: 90deg; --size: 36px; }
-.orbit.o4 { --dur: 21s; --delay: -10s; }
-.orbit.o4 .orbit-icon { --r: 49cqw; --start: 135deg; --size: 40px; }
-.orbit.o5 { --dur: 15s; --delay: -1s; }
-.orbit.o5 .orbit-icon { --r: 38cqw; --start: 180deg; --size: 28px; }
-.orbit.o6 { --dur: 19s; --delay: -12s; }
-.orbit.o6 .orbit-icon { --r: 44cqw; --start: 225deg; --size: 36px; }
-.orbit.o7 { --dur: 12s; --delay: -6s; }
-.orbit.o7 .orbit-icon { --r: 33cqw; --start: 270deg; --size: 26px; }
-.orbit.o8 { --dur: 24s; --delay: -15s; }
-.orbit.o8 .orbit-icon { --r: 50cqw; --start: 315deg; --size: 34px; }
+/* встречное кольцо */
+.orbit.rev { animation-name: orbitSpinRev; }
+.orbit.rev .orbit-glyph { animation-name: orbitCounterRev; }
+@keyframes orbitSpinRev {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(-360deg); }
+}
+@keyframes orbitCounterRev {
+    from { rotate: 0deg; }
+    to { rotate: 360deg; }
+}
+
+/* внешнее кольцо: 22с, радиус 46cqw, иконки через 90° */
+.orbit.o1 { --dur: 22s; --delay: 0s; }
+.orbit.o1 .orbit-icon { --r: 46cqw; --start: 0deg; --size: 38px; }
+.orbit.o4 { --dur: 22s; --delay: 0s; }
+.orbit.o4 .orbit-icon { --r: 46cqw; --start: 90deg; --size: 40px; }
+.orbit.o6 { --dur: 22s; --delay: 0s; }
+.orbit.o6 .orbit-icon { --r: 46cqw; --start: 180deg; --size: 36px; }
+.orbit.o8 { --dur: 22s; --delay: 0s; }
+.orbit.o8 .orbit-icon { --r: 46cqw; --start: 270deg; --size: 34px; }
+
+/* внутреннее кольцо (встречное): 15с, радиус 34cqw, иконки через 90° */
+.orbit.o2 { --dur: 15s; --delay: 0s; }
+.orbit.o2 .orbit-icon { --r: 34cqw; --start: 45deg; --size: 32px; }
+.orbit.o3 { --dur: 15s; --delay: 0s; }
+.orbit.o3 .orbit-icon { --r: 34cqw; --start: 135deg; --size: 36px; }
+.orbit.o5 { --dur: 15s; --delay: 0s; }
+.orbit.o5 .orbit-icon { --r: 34cqw; --start: 225deg; --size: 28px; }
+.orbit.o7 { --dur: 15s; --delay: 0s; }
+.orbit.o7 .orbit-icon { --r: 34cqw; --start: 315deg; --size: 26px; }
 
 @media (prefers-reduced-motion: reduce) {
     .portal-ring, .portal::before, .portal-core, .orbit, .orbit-icon { animation: none; }
@@ -442,7 +471,16 @@ input[type="text"]:focus {
 .leaders + .panel-title,
 .hint + .panel-title,
 .rooms + .panel-title,
+.bets + .panel-title,
 #mod-panel .hint + form { margin-top: 30px; }
+
+/* экран сапёра: больше воздуха между блоками левой колонки */
+.mine-hub .panel-title { margin-bottom: 16px; }
+.mine-hub .match-box + .panel-title,
+.mine-hub .hint + .panel-title,
+.mine-hub .bets + .panel-title,
+.mine-hub #mine-bet-box + .panel-title { margin-top: 38px; }
+.mine-hub .panel > .match-box { gap: 16px; margin-bottom: 14px; }
 
 .panel > .roles, .panel > .betting-box, .panel > .match-box { margin-bottom: 6px; }
 .panel > .leaders { margin-bottom: 8px; }

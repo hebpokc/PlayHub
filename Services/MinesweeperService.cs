@@ -14,6 +14,7 @@ public class MinesweeperService
     private const int PvpBaseTurnSeconds = 30;
     private const int PvpTimeoutPenalty = 5;
     private const int AsymPlaceSeconds = 60;
+    private const int SoloHostSeatSeconds = 10;
 
     private readonly WalletService _wallets;
     private readonly MineRecordService _records;
@@ -38,6 +39,14 @@ public class MinesweeperService
             if (g.Find(player.ConnectionId) != null) return "ok";
             if (g.IsStarted && !g.IsFinished) return "Партия уже идёт — дождитесь окончания.";
 
+            // одиночка: первые 10 секунд место держит хост комнаты
+            if (g.Mode == MineMode.Solo && player.ConnectionId != room.HostConnectionId &&
+                g.HostSeatReservedUntil is { } until && DateTime.UtcNow < until)
+            {
+                var left = (int)Math.Ceiling((until - DateTime.UtcNow).TotalSeconds);
+                return $"Место зарезервировано за хостом ещё {left} с.";
+            }
+
             var max = MaxPlayers(g.Mode);
             if (g.Participants.Count >= max) return $"В этом режиме максимум {max} игрок(а).";
 
@@ -46,8 +55,22 @@ public class MinesweeperService
                 ConnectionId = player.ConnectionId,
                 Name = player.Name
             });
+
+            // хост сел играть (или место занято) — резерв больше не нужен
+            if (g.Mode == MineMode.Solo) g.HostSeatReservedUntil = null;
+
             room.Touch();
             return "ok";
+        }
+    }
+
+    /// <summary>Установить резерв места за хостом при создании одиночной комнаты.</summary>
+    public void ReserveHostSeat(Room room)
+    {
+        lock (room.Sync)
+        {
+            var g = room.Mine!;
+            g.HostSeatReservedUntil = DateTime.UtcNow.AddSeconds(SoloHostSeatSeconds);
         }
     }
 
@@ -62,6 +85,25 @@ public class MinesweeperService
 
             if (g.IsStarted && !g.IsFinished)
             {
+                // асим: террорист-наблюдатель ушёл — сапёр продолжает разминировать
+                if (g.Mode == MineMode.Asym && p.IsSpectating)
+                {
+                    p.IsOut = true;
+                    room.Touch();
+                    return;
+                }
+
+                // асим: сапёр ушёл или сдался в фазе расстановки — побеждает террорист
+                if (g.Mode == MineMode.Asym)
+                {
+                    p.IsOut = true;
+                    var terrorist = g.Participants.First(x => x.IsTerrorist);
+                    terrorist.IsSpectating = false;
+                    FinishWithWinner(room, terrorist);
+                    room.Touch();
+                    return;
+                }
+
                 // отключение во время партии = поражение
                 p.IsOut = true;
                 if (g.Mode == MineMode.Solo)
@@ -167,7 +209,7 @@ public class MinesweeperService
         g.WinnerPayout = 0;
         g.ExplodedIndex = -1;
         g.StartedAt = DateTime.UtcNow;
-        foreach (var p in g.Participants) { p.Score = 0; p.IsOut = false; }
+        foreach (var p in g.Participants) { p.Score = 0; p.IsOut = false; p.IsSpectating = false; }
 
         if (g.Mode == MineMode.Asym)
         {
@@ -252,6 +294,10 @@ public class MinesweeperService
             g.MinesPlaced = true;
             g.IsPlacing = false;
             var sapper = g.Participants.First(p => !p.IsTerrorist);
+
+            // террорист знает, где мины — дальше он только наблюдает за разминированием
+            foreach (var t in g.Participants.Where(p => p.IsTerrorist)) t.IsSpectating = true;
+
             g.TurnId = sapper.ConnectionId;
             g.TurnDeadline = null; // сапёр играет без таймера хода
             g.StartedAt = DateTime.UtcNow;
@@ -272,7 +318,7 @@ public class MinesweeperService
         {
             var g = room.Mine!;
             var p = g.Find(connectionId);
-            if (p == null || p.IsOut) return (MineActionResult.NotParticipant, 0, false);
+            if (p == null || p.IsOut || p.IsSpectating) return (MineActionResult.NotParticipant, 0, false);
             if (!g.IsStarted) return (MineActionResult.NotStarted, 0, false);
             if (g.IsFinished) return (MineActionResult.Finished, 0, false);
             if (g.IsPlacing) return (MineActionResult.PlacingPhase, 0, false);
@@ -308,6 +354,7 @@ public class MinesweeperService
                 else if (g.Mode == MineMode.Asym)
                 {
                     var terrorist = g.Participants.First(x => x.IsTerrorist);
+                    terrorist.IsSpectating = false;
                     FinishWithWinner(room, terrorist);
                 }
                 else
@@ -338,9 +385,18 @@ public class MinesweeperService
 
             if (g.Mode != MineMode.Solo)
             {
-                // PvP: открыт ноль — бонусный дополнительный ход (без продления таймера)
-                var bonus = g.Mode == MineMode.Pvp && g.Numbers[index] == 0;
-                if (!bonus) AdvanceTurn(room);
+                // асим: играет один сапёр и без таймера хода
+                if (g.Mode == MineMode.Asym)
+                {
+                    g.TurnId = p.ConnectionId;
+                    g.TurnDeadline = null;
+                }
+                else
+                {
+                    // PvP: открыт ноль — бонусный дополнительный ход (без продления таймера)
+                    var bonus = g.Numbers[index] == 0;
+                    if (!bonus) AdvanceTurn(room);
+                }
             }
 
             return (MineActionResult.Ok, points, false);
@@ -354,7 +410,7 @@ public class MinesweeperService
         {
             var g = room.Mine!;
             var p = g.Find(connectionId);
-            if (p == null || p.IsOut) return MineActionResult.NotParticipant;
+            if (p == null || p.IsOut || p.IsSpectating) return MineActionResult.NotParticipant;
             if (!g.IsStarted) return MineActionResult.NotStarted;
             if (g.IsFinished) return MineActionResult.Finished;
             if (g.IsPlacing) return MineActionResult.PlacingPhase;
@@ -387,6 +443,10 @@ public class MinesweeperService
             var p = g.Find(connectionId);
             if (p == null || !g.IsStarted || g.IsFinished) return false;
 
+            // террорист во время расстановки сдаётся — сапёр побеждает;
+            // после расстановки он уже наблюдатель и сдаться не может
+            if (p.IsSpectating) return false;
+
             p.IsOut = true;
             if (g.Mode == MineMode.Solo)
             {
@@ -395,6 +455,7 @@ public class MinesweeperService
             else if (g.Mode == MineMode.Asym)
             {
                 var opponent = g.Participants.First(x => x.ConnectionId != connectionId);
+                opponent.IsSpectating = false; // на случай сдачи в фазе расстановки
                 FinishWithWinner(room, opponent);
             }
             else
@@ -449,18 +510,18 @@ public class MinesweeperService
         }
     }
 
-    /// <summary>Передать ход следующему живому игроку по кругу.</summary>
+    /// <summary>Передать ход следующему играющему по кругу.</summary>
     private void AdvanceTurn(Room room)
     {
         var g = room.Mine!;
-        var alive = g.Participants.Where(p => !p.IsOut).ToList();
+        var alive = g.Participants.Where(p => !p.IsOut && !p.IsSpectating).ToList();
         if (alive.Count == 0) { FinishDraw(room); return; }
 
         var idx = g.Participants.FindIndex(p => p.ConnectionId == g.TurnId);
         for (var step = 1; step <= g.Participants.Count; step++)
         {
             var next = g.Participants[(idx + step + g.Participants.Count) % g.Participants.Count];
-            if (!next.IsOut)
+            if (!next.IsOut && !next.IsSpectating)
             {
                 g.TurnId = next.ConnectionId;
                 g.TurnDeadline = DateTime.UtcNow.AddSeconds(TurnSeconds(g));
@@ -470,11 +531,14 @@ public class MinesweeperService
         FinishDraw(room);
     }
 
-    /// <summary>Если остался один живой — он победил; если не осталось — ничья.</summary>
+    /// <summary>
+    /// Если остался один играющий — он победил; если не осталось — ничья.
+    /// Террористы-наблюдатели (IsSpectating) в подсчёте не участвуют.
+    /// </summary>
     private void CheckWinByElimination(Room room)
     {
         var g = room.Mine!;
-        var alive = g.Participants.Where(p => !p.IsOut).ToList();
+        var alive = g.Participants.Where(p => !p.IsOut && !p.IsSpectating).ToList();
         if (alive.Count == 1) FinishWithWinner(room, alive[0]);
         else if (alive.Count == 0) FinishDraw(room);
     }
@@ -538,12 +602,22 @@ public class MinesweeperService
             _leaderboard.AddResult(p.Name, "loss");
     }
 
-    /// <summary>Ничья по очкам (PvP: равный счёт после разминирования).</summary>
+    /// <summary>
+    /// Поле разминировано целиком: победитель — игрок с наибольшим счётом.
+    /// В кинотеатре сравниваются только выжившие (выбывшие очков не делят).
+    /// </summary>
     private void FinishByScore(Room room)
     {
         var g = room.Mine!;
-        var best = g.Participants.OrderByDescending(p => p.Score).ToList();
-        if (best.Count >= 2 && best[0].Score == best[1].Score) FinishDraw(room);
+        var pool = g.Mode == MineMode.Cinema
+            ? g.Participants.Where(p => !p.IsOut && !p.IsSpectating).ToList()
+            : g.Participants.Where(p => !p.IsSpectating).ToList();
+
+        if (pool.Count == 0) { FinishDraw(room); return; }
+        if (pool.Count == 1) { FinishWithWinner(room, pool[0]); return; }
+
+        var best = pool.OrderByDescending(p => p.Score).ToList();
+        if (best[0].Score == best[1].Score) FinishDraw(room);
         else FinishWithWinner(room, best[0]);
     }
 
@@ -584,12 +658,17 @@ public class MinesweeperService
             g.ExplodedIndex = -1;
             g.TurnId = "";
             g.TurnDeadline = null;
+            // одиночка: место снова держится за хостом первые 10 секунд
+            g.HostSeatReservedUntil = g.Mode == MineMode.Solo
+                ? DateTime.UtcNow.AddSeconds(SoloHostSeatSeconds)
+                : null;
             g.InitField();
             foreach (var p in g.Participants)
             {
                 p.Score = 0;
                 p.Ante = 0;
                 p.IsOut = false;
+                p.IsSpectating = false;
                 p.IsReady = false;
             }
             room.Bets.Clear();
@@ -790,6 +869,11 @@ public class MinesweeperService
                 WinnerPayout = g.WinnerPayout,
                 Bank = g.Bank,
                 FlagsLeft = g.MineCount - g.Flagged.Count(f => f),
+                MinesPlacedByTerrorist = g.Mines.Count(m => m),
+                HostSeatSecondsLeft = g.HostSeatReservedUntil is { } until && DateTime.UtcNow < until
+                    ? (int)Math.Ceiling((until - DateTime.UtcNow).TotalSeconds)
+                    : 0,
+                PlayersNeeded = g.IsStarted ? 0 : Math.Max(0, MinPlayers(g.Mode) - g.Participants.Count),
                 MyRecord = g.Mode == MineMode.Solo && player != null
                     ? _records.Get(player.Name, g.Difficulty.Key)
                     : null,
@@ -800,6 +884,7 @@ public class MinesweeperService
                     Score = p.Score,
                     Ante = p.Ante,
                     IsOut = p.IsOut,
+                    IsSpectating = p.IsSpectating,
                     IsTerrorist = p.IsTerrorist,
                     IsReady = p.IsReady
                 }).ToList(),
