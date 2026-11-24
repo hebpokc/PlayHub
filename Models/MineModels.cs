@@ -43,6 +43,7 @@ public class MinePlayerState
 {
     public string ConnectionId { get; set; } = "";
     public string Name { get; set; } = "";
+    public string Avatar { get; set; } = Services.AvatarService.DefaultAvatar;
 
     /// <summary>Набранные очки в текущей партии.</summary>
     public int Score { get; set; }
@@ -178,6 +179,7 @@ public class MineParticipantDto
 {
     public string ConnectionId { get; set; } = "";
     public string Name { get; set; } = "";
+    public string Avatar { get; set; } = Services.AvatarService.DefaultAvatar;
     public int Score { get; set; }
     public int Ante { get; set; }
     public bool IsOut { get; set; }

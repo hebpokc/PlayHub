@@ -7,9 +7,7 @@ const screens = { join: $("screen-join"), lobby: $("screen-lobby"), room: $("scr
 const joinForm = $("join-form");
 const nameInput = $("name-input");
 const joinStatus = $("join-status");
-const modToggle = $("mod-toggle");
-const modForm = $("mod-form");
-const toast = $("toast");
+const toastHost = $("toast-host");
 const banner = $("banner");
 const cells = Array.from(document.querySelectorAll("#board .cell"));
 
@@ -23,75 +21,445 @@ let myId = "";
 let myName = "";
 let mySide = "";
 let myBalance = 0;
+let myAvatar = "😎";
 let isModerator = false;
 let lobbyState = null;      // последний снимок лобби
 let roomState = null;       // последний снимок комнаты
 let mineState = null;       // последний снимок сапёра
 let lastBoard = [];
-let toastTimer = null;
+let myModPassword = null;   // для повторного входа после реконнекта
+let bonusState = null;      // { nextBonusSeconds, dailyAvailable }
+let bonusDeadlineAt = 0;    // локальный дедлайн бонуса +50 (мс)
+
+// настройки звука и эффектов (переживают перезагрузку)
+let soundOn = localStorage.getItem("ph-sound") !== "off";
+let fxOn = localStorage.getItem("ph-fx") !== "off";
 
 function showScreen(name) {
     Object.keys(screens).forEach((k) => screens[k].classList.toggle("active", k === name));
 }
 
+// ---------------------------------------------------- звук (WebAudio, без файлов)
+let audioCtx = null;
+function sfx(kind) {
+    if (!soundOn) return;
+    try {
+        audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === "suspended") audioCtx.resume();
+        const now = audioCtx.currentTime;
+        const tone = (freq, start, dur, type, vol) => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = type || "sine";
+            osc.frequency.setValueAtTime(freq, now + start);
+            gain.gain.setValueAtTime(0.0001, now + start);
+            gain.gain.exponentialRampToValueAtTime(vol || 0.12, now + start + 0.012);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + start + dur);
+            osc.connect(gain).connect(audioCtx.destination);
+            osc.start(now + start);
+            osc.stop(now + start + dur + 0.05);
+        };
+        if (kind === "tick") tone(660, 0, 0.06, "triangle", 0.07);
+        else if (kind === "pop") tone(440, 0, 0.09, "triangle", 0.1);
+        else if (kind === "coin") { tone(880, 0, 0.09, "square", 0.06); tone(1320, 0.07, 0.14, "square", 0.06); }
+        else if (kind === "win") { tone(523, 0, 0.12, "triangle"); tone(659, 0.1, 0.12, "triangle"); tone(784, 0.2, 0.22, "triangle"); }
+        else if (kind === "err") { tone(220, 0, 0.14, "sawtooth", 0.07); tone(160, 0.1, 0.18, "sawtooth", 0.07); }
+    } catch (e) { /* звук не критичен */ }
+}
+
+// пульт: звук и фоновые эффекты
+function applyFxState() {
+    document.body.classList.toggle("fx-off", !fxOn);
+    $("fx-btn").setAttribute("aria-pressed", String(fxOn));
+    $("fx-btn").textContent = fxOn ? "✨" : "🌑";
+    $("snd-btn").setAttribute("aria-pressed", String(soundOn));
+    $("snd-btn").textContent = soundOn ? "🔊" : "🔇";
+}
+$("fx-btn").addEventListener("click", () => {
+    fxOn = !fxOn;
+    localStorage.setItem("ph-fx", fxOn ? "on" : "off");
+    applyFxState();
+    sfx("tick");
+});
+$("snd-btn").addEventListener("click", () => {
+    soundOn = !soundOn;
+    localStorage.setItem("ph-sound", soundOn ? "on" : "off");
+    applyFxState();
+    sfx("pop");
+});
+applyFxState();
+
+// ------------------------------------------------ Toast Slide-in: стек уведомлений
 function showToast(text, kind) {
-    toast.textContent = text;
-    toast.className = "toast show" + (kind ? " " + kind : "");
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => (toast.className = "toast"), 3200);
+    const el = document.createElement("div");
+    el.className = "toast" + (kind ? " " + kind : "");
+    el.textContent = text;
+    el.addEventListener("click", () => dismiss(el));
+    toastHost.appendChild(el);
+    requestAnimationFrame(() => el.classList.add("show"));
+    // держим не больше 4 тостов: старые убираем сразу
+    while (toastHost.children.length > 4) dismiss(toastHost.firstElementChild, true);
+    setTimeout(() => dismiss(el), 3400);
+    if (kind === "error") sfx("err");
+    else if (kind === "ok") sfx("pop");
+
+    function dismiss(node, instant) {
+        if (!node || !node.parentNode) return;
+        if (instant) { node.remove(); return; }
+        node.classList.remove("show");
+        setTimeout(() => node.remove(), 320);
+    }
+}
+
+// ------------------------------------------------------- CoinFly к балансу
+function activeBalanceEl() {
+    if (screens.mine.classList.contains("active")) return $("mine-my-balance");
+    if (screens.room.classList.contains("active")) return $("room-my-balance");
+    return $("my-balance");
+}
+
+function coinFly(fromEl, count) {
+    if (!fxOn || !fromEl) return;
+    const target = activeBalanceEl();
+    const from = fromEl.getBoundingClientRect();
+    const to = target.getBoundingClientRect();
+    const sx = from.left + from.width / 2, sy = from.top + from.height / 2;
+    const tx = to.left + to.width / 2, ty = to.top + to.height / 2;
+    const n = Math.min(count || 6, 8);
+    for (let i = 0; i < n; i++) {
+        const coin = document.createElement("span");
+        coin.className = "fly-coin";
+        coin.textContent = "🪙";
+        coin.style.left = sx + "px";
+        coin.style.top = sy + "px";
+        document.body.appendChild(coin);
+        const arcX = (sx + tx) / 2 + (Math.random() - 0.5) * 160;
+        const arcY = Math.min(sy, ty) - 60 - Math.random() * 70;
+        const anim = coin.animate([
+            { transform: "translate(-50%,-50%) scale(.7)", opacity: 0, offset: 0 },
+            { transform: `translate(${arcX - sx - 10}px, ${arcY - sy - 10}px) scale(1.15)`, opacity: 1, offset: 0.45 },
+            { transform: `translate(${tx - sx - 10}px, ${ty - sy - 10}px) scale(.4)`, opacity: 0.9, offset: 1 }
+        ], { duration: 650 + Math.random() * 250, delay: i * 70, easing: "cubic-bezier(.3,.6,.4,1)", fill: "forwards" });
+        anim.onfinish = () => {
+            coin.remove();
+            if (i === n - 1) {
+                target.classList.remove("balance-bump");
+                void target.offsetWidth;
+                target.classList.add("balance-bump");
+            }
+        };
+    }
+    sfx("coin");
 }
 
 // ============================================================ подключение
 
-async function startConnection() {
+function buildConnection() {
     connection = new signalR.HubConnectionBuilder()
         .withUrl("/hubs/game")
         .withAutomaticReconnect()
         .configureLogging(signalR.LogLevel.Warning)
         .build();
-
     registerHandlers();
-    await connection.start();
+    return connection;
 }
 
-async function joinAs(name, moderatorPassword) {
-    joinStatus.className = "status";
-    joinStatus.textContent = "Подключение к серверу…";
-    $("join-button").disabled = true;
-    $("mod-join-button").disabled = true;
-
+/** Гостевой канал: живой онлайн, presence и лента побед ещё до входа. */
+async function startGuestConnection() {
     try {
-        await startConnection();
-        await connection.invoke("Join", name, moderatorPassword);
+        await buildConnection().start();
+
+        // возврат со страницы правил: автоматически входим обратно в лобби
+        const saved = sessionStorage.getItem("ph-session");
+        if (saved) {
+            sessionStorage.removeItem("ph-session");
+            try {
+                const s = JSON.parse(saved);
+                if (s && s.name && Date.now() - (s.at || 0) < 10 * 60 * 1000) {
+                    myName = s.name;
+                    myModPassword = s.mod || null;
+                    myAvatar = s.avatar || myAvatar;
+                    joinStatus.className = "status";
+                    joinStatus.textContent = "Возвращаемся в лобби…";
+                    await connection.invoke("Join", myName, myModPassword, myAvatar);
+                    return;
+                }
+            } catch (e) { /* повреждённая метка — обычный вход */ }
+        }
+
+        const snapshot = await connection.invoke("WatchLobby");
+        renderJoinPreview(snapshot);
     } catch (err) {
-        joinStatus.className = "status error";
-        joinStatus.textContent = "Сервер не отвечает. Запустите проект в Visual Studio (F5).";
-        $("join-button").disabled = false;
-        $("mod-join-button").disabled = false;
         console.error(err);
     }
 }
+startGuestConnection();
 
-joinForm.addEventListener("submit", (e) => {
-    e.preventDefault();
-    myName = nameInput.value.trim() || "Гость";
-    joinAs(myName, null);
+// перед уходом на страницу правил запоминаем сессию — вернёмся сразу в лобби
+document.querySelectorAll('a[href="rules.html"]').forEach((link) => {
+    link.addEventListener("click", () => {
+        if (!myId) return;
+        sessionStorage.setItem("ph-session", JSON.stringify({
+            name: myName, mod: myModPassword, avatar: myAvatar, at: Date.now()
+        }));
+    });
 });
 
-modToggle.addEventListener("click", () => {
-    const open = modForm.hidden;
-    modForm.hidden = !open;
-    modToggle.textContent = open ? "✕ Отмена" : "🛡 Войти как модератор";
-    if (open) $("mod-name-input").focus();
+// ------------------------------------------------- форма входа (превью-дизайн)
+let joinTab = "player";
+let joinBusy = false;
+
+const avatarsList = ["😎", "🦊", "👾", "🐸", "🤖", "🦄", "🐼", "🐙", "🐯", "🐺", "🦁", "🐲"];
+
+(function initAvatarPicker() {
+    const row = $("av-row");
+    const saved = localStorage.getItem("ph-avatar");
+    if (saved && avatarsList.includes(saved)) myAvatar = saved;
+    avatarsList.forEach((emoji) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "av" + (emoji === myAvatar ? " sel" : "");
+        btn.textContent = emoji;
+        btn.setAttribute("role", "radio");
+        btn.setAttribute("aria-checked", String(emoji === myAvatar));
+        btn.addEventListener("click", () => {
+            myAvatar = emoji;
+            localStorage.setItem("ph-avatar", emoji);
+            row.querySelectorAll(".av").forEach((b) => {
+                b.classList.toggle("sel", b === btn);
+                b.setAttribute("aria-checked", String(b === btn));
+            });
+            $("av-cap").textContent = `Аватар: ${emoji}`;
+            sfx("pop");
+        });
+        row.appendChild(btn);
+    });
+    $("av-cap").textContent = `Аватар: ${myAvatar}`;
+})();
+
+// вкладки Игрок / Модератор
+document.querySelectorAll("#join-tabs button[data-tab]").forEach((tab) => {
+    tab.addEventListener("click", () => {
+        joinTab = tab.dataset.tab;
+        $("join-tabs").dataset.active = joinTab;
+        document.querySelectorAll("#join-tabs button[data-tab]").forEach((t) =>
+            t.setAttribute("aria-selected", String(t === tab)));
+        $("mod-pass-field").hidden = joinTab !== "mod";
+        if (joinTab === "mod") $("mod-pass-input").focus();
+        sfx("tick");
+    });
 });
 
-modForm.addEventListener("submit", (e) => {
+function fieldError(fieldId, on) {
+    const field = $(fieldId);
+    field.classList.remove("is-error");
+    if (on) {
+        void field.offsetWidth;   // перезапуск shake-анимации
+        field.classList.add("is-error");
+        sfx("err");
+    }
+}
+
+function setJoinBusy(busy) {
+    joinBusy = busy;
+    const btn = $("join-button");
+    btn.disabled = busy;
+    btn.querySelector(".lbl").textContent = busy ? "Входим…" : "Войти →";
+    btn.querySelector(".spinner").hidden = !busy;
+}
+
+joinForm.addEventListener("submit", async (e) => {
     e.preventDefault();
-    myName = $("mod-name-input").value.trim() || "Гость";
+    if (joinBusy) return;
+
+    const name = nameInput.value.trim();
+    if (name.length < 2 || !/^[\p{L}\p{N} _-]+$/u.test(name)) {
+        fieldError("name-field", true);
+        joinStatus.className = "status error";
+        joinStatus.textContent = "Имя: 2–16 символов, без спецсимволов.";
+        return;
+    }
+    fieldError("name-field", false);
+
     const pass = $("mod-pass-input").value;
-    if (!pass) return;
-    isModerator = true;
-    joinAs(myName, pass);
+    if (joinTab === "mod" && !pass) {
+        fieldError("mod-pass-field", true);
+        return;
+    }
+    fieldError("mod-pass-field", false);
+
+    myName = name;
+    myModPassword = joinTab === "mod" ? pass : null;
+    setJoinBusy(true);
+    joinStatus.className = "status";
+    joinStatus.textContent = "Подключение к серверу…";
+
+    try {
+        if (!connection || connection.state !== signalR.HubConnectionState.Connected) {
+            if (connection) { try { await connection.stop(); } catch (e) { /* уже закрыт */ } }
+            await buildConnection().start();
+        }
+        await connection.invoke("Join", myName, myModPassword, myAvatar);
+    } catch (err) {
+        setJoinBusy(false);
+        joinStatus.className = "status error";
+        joinStatus.textContent = "Сервер не отвечает. Запустите проект в Visual Studio (F5).";
+        console.error(err);
+    }
+});
+
+// Magnetic Button: CTA слегка тянется к курсору внутри своей зоны
+(function magneticButton() {
+    const zone = $("join-mag-zone");
+    const btn = $("join-button");
+    zone.addEventListener("mousemove", (e) => {
+        if (!fxOn) return;
+        const r = zone.getBoundingClientRect();
+        const dx = (e.clientX - (r.left + r.width / 2)) / r.width;
+        const dy = (e.clientY - (r.top + r.height / 2)) / r.height;
+        btn.style.transform = `translate(${dx * 10}px, ${dy * 8}px)`;
+    });
+    zone.addEventListener("mouseleave", () => (btn.style.transform = ""));
+})();
+
+// описания игр при наведении на чипы и орбитальные боксы
+const gameDescriptions = {
+    "Крестики-нолики": "Классика 3×3 на двоих. Победа приносит +100 монет, наблюдатели ставят на игрока до старта и забирают ×2.",
+    "Сапёр": "Одиночка или PvP-дуэль. Открывай клетки, собирай очки, быстрые ходы дают множитель. Подорвался — банк сопернику.",
+    "Сапёр vs Террорист": "Террорист прячет мины, сапёр рискует: каждый клик приближает к банку. «Забрать очки» — доля растёт с каждым кликом, мина забирает всё.",
+    "PvP-дуэли": "Двое вносят ante в общий банк и ходят по очереди. Победитель забирает банк минус комиссия хаба 5%.",
+    "Кинотеатр": "3–8 игроков ходят по кругу, 20 секунд на ход. Подорвался — выбыл и смотришь до конца. Последний выживший забирает банк.",
+    "Турниры": "Таблица лидеров обновляется после каждой партии: победы, игры и очки. Лучший сапёр попадает в рекорды поля.",
+    "Ставки ×2": "Наблюдатели ставят на победителя до начала матча. Угадал — ставка удваивается, ошибся — уходит в общий пул.",
+    "Монеты": "Стартовый баланс 500💰. Победа в крестиках +100💰, бонус +50💰 каждые 15 минут и +25💰 за ежедневный вход.",
+    "Наблюдение": "Заходи в любую комнату зрителем: следи за партией в реальном времени, общайся в чате и делай ставки."
+};
+const defaultChipDesc = $("chip-desc").textContent;
+
+function bindGameDescriptions(selector, onHover) {
+    document.querySelectorAll(selector).forEach((el) => {
+        el.addEventListener("mouseenter", () => onHover(el.dataset.name));
+        el.addEventListener("focus", () => onHover(el.dataset.name));
+        el.addEventListener("mouseleave", () => onHover(null));
+        el.addEventListener("blur", () => onHover(null));
+    });
+}
+bindGameDescriptions("#game-chips .gchip", (name) => {
+    $("chip-desc").textContent = name ? (gameDescriptions[name] || defaultChipDesc) : defaultChipDesc;
+    if (name) sfx("tick");
+});
+bindGameDescriptions(".orbit-chip", (name) => {
+    $("orbit-cap").textContent = name || "PlayHub";
+    $("chip-desc").textContent = name ? (gameDescriptions[name] || defaultChipDesc) : defaultChipDesc;
+    if (name) sfx("tick");
+});
+
+// ------------------------------------------------ живые данные на экране входа
+let guestWatchTimer = null;
+
+function renderJoinPreview(s) {
+    if (!s) return;
+    countUp($("join-online"), s.online || 0);
+    countUp($("join-rooms"), s.rooms ? s.rooms.length : 0);
+    renderPresence($("join-presence"), s.users || [], s.online || 0, $("join-presence-plus"));
+}
+
+// страховка живого счёта у гостя: если рассылка не дошла (фоновая вкладка,
+// пропущенный кадр), обновляем снимок раз в 5 секунд, пока виден экран входа
+guestWatchTimer = setInterval(async () => {
+    if (myId || !connection || connection.state !== signalR.HubConnectionState.Connected) return;
+    if (!screens.join.classList.contains("active")) return;
+    try { renderJoinPreview(await connection.invoke("WatchLobby")); } catch (e) { /* сервер занят */ }
+}, 5000);
+
+/** Плавный count-up числа в элементе (setTimeout: работает и в фоновой вкладке). */
+function countUp(el, to) {
+    const from = Number(el.textContent) || 0;
+    if (from === to) { el.textContent = to; return; }
+    const start = performance.now();
+    const dur = 500;
+    function step() {
+        const t = Math.min(1, (performance.now() - start) / dur);
+        el.textContent = Math.round(from + (to - from) * (1 - Math.pow(1 - t, 3)));
+        if (t < 1) setTimeout(step, 32);
+    }
+    step();
+}
+
+/** Presence Avatars: ряд эмодзи-аватаров с pop-эффектом для новых. */
+function renderPresence(container, users, total, plusEl) {
+    const seen = new Set(Array.from(container.children).map((c) => c.dataset.cid));
+    container.innerHTML = "";
+    users.slice(0, 8).forEach((p) => {
+        const av = document.createElement("span");
+        av.className = "p-av" + (seen.has(p.connectionId) ? "" : " pop");
+        av.dataset.cid = p.connectionId;
+        av.textContent = p.avatar || "😎";
+        av.title = p.name;
+        container.appendChild(av);
+    });
+    if (plusEl) {
+        const extra = Math.max(0, total - Math.min(users.length, 8));
+        plusEl.hidden = extra === 0;
+        plusEl.textContent = `+${extra}`;
+    }
+}
+
+// --------------------------------------------------------- Win Ticker
+let tickerSignature = "";
+function renderWinFeed(entries) {
+    const ticker = $("win-ticker");
+    if (!entries || !entries.length) { ticker.hidden = true; return; }
+    const sig = entries.map((e) => `${e.name}|${e.amount}|${e.time}`).join(";");
+    if (sig === tickerSignature) return;
+    tickerSignature = sig;
+
+    const track = $("ticker-track");
+    track.innerHTML = "";
+    // контент дублируется: translateX(-50%) даёт бесшовную петлю
+    for (let copy = 0; copy < 2; copy++) {
+        entries.forEach((e) => {
+            const chip = document.createElement("span");
+            chip.className = "tk";
+            chip.innerHTML = `🏆 ${escapeHtml(e.name)} <b>+${e.amount}💰</b> ${escapeHtml(e.game)} <span class="tk-time">${escapeHtml(e.time)}</span>`;
+            track.appendChild(chip);
+        });
+    }
+    ticker.hidden = false;
+}
+
+// ------------------------------------------------------------ бонусы
+function renderBonusStatus(bonus) {
+    bonusState = bonus;
+    bonusDeadlineAt = bonus && bonus.nextBonusSeconds > 0 ? Date.now() + bonus.nextBonusSeconds * 1000 : 0;
+    updateBonusUi();
+}
+
+function updateBonusUi() {
+    if (!bonusState) return;
+    const daily = $("daily-bonus-button");
+    daily.disabled = !bonusState.dailyAvailable;
+    $("daily-bonus-text").textContent = bonusState.dailyAvailable
+        ? "+25 монет за вход — забрать"
+        : "уже забран сегодня — возвращайтесь завтра";
+
+    const left = bonusDeadlineAt > 0 ? Math.max(0, Math.ceil((bonusDeadlineAt - Date.now()) / 1000)) : 0;
+    const timed = $("timed-bonus-button");
+    timed.disabled = left > 0;
+    timed.className = "btn small " + (left > 0 ? "ghost" : "cashout");
+    $("timed-bonus-text").textContent = left > 0
+        ? `+50 монет через ${formatTime(left)}`
+        : "+50 монет — можно забрать";
+}
+setInterval(updateBonusUi, 1000);
+
+$("timed-bonus-button").addEventListener("click", async () => {
+    if (!connection) return;
+    try { await connection.invoke("ClaimTimedBonus"); } catch (err) { console.error(err); }
+});
+$("daily-bonus-button").addEventListener("click", async () => {
+    if (!connection) return;
+    try { await connection.invoke("ClaimDailyBonus"); } catch (err) { console.error(err); }
 });
 
 function registerHandlers() {
@@ -100,19 +468,48 @@ function registerHandlers() {
         myId = info.connectionId;
         myName = info.name;
         myBalance = info.balance;
+        myAvatar = info.avatar || myAvatar;
         isModerator = !!info.isModerator;
-        $("join-button").disabled = false;
-        $("mod-join-button").disabled = false;
+        setJoinBusy(false);
+        const btn = $("join-button");
+        btn.classList.add("done");
+        btn.querySelector(".lbl").textContent = "Готово ✓";
         renderBalance();
-        showScreen("lobby");
+        renderBonusStatus(info.bonus);
+        sfx("win");
+        setTimeout(() => {
+            showScreen("lobby");
+            btn.classList.remove("done");
+            btn.querySelector(".lbl").textContent = "Войти →";
+        }, 450);
     });
 
     connection.on("Banned", () => {
+        setJoinBusy(false);
+        fieldError("name-field", true);
         joinStatus.className = "status error";
         joinStatus.textContent = "Вы забанены на этом сайте и не можете войти.";
-        $("join-button").disabled = false;
-        $("mod-join-button").disabled = false;
     });
+
+    // гостевой снимок: онлайн и аватары на экране входа
+    connection.on("LobbyPreview", (snapshot) => renderJoinPreview(snapshot));
+
+    // лента последних побед (в т.ч. гостям на экране входа)
+    connection.on("WinFeed", (entries) => renderWinFeed(entries));
+
+    // бонус зачислен
+    connection.on("BonusClaimed", (info) => {
+        myBalance = info.balance;
+        renderBalance();
+        renderBonusStatus(info.bonus);
+        showToast(`Бонус +${info.amount} монет зачислен! 🪙`, "ok");
+        coinFly($("bonus-card"), 6);
+        const card = $("bonus-card");
+        card.classList.remove("claimed-flash");
+        void card.offsetWidth;
+        card.classList.add("claimed-flash");
+    });
+    connection.on("BonusDenied", (message) => showToast(message, "warn"));
 
     // лобби: комнаты + пользователи + лидеры
     connection.on("LobbyUpdated", (snapshot) => {
@@ -188,6 +585,7 @@ function registerHandlers() {
 
     connection.on("MineExploded", (info) => {
         showToast(`💥 ${info.name} подорвался на мине!`, "error");
+        sfx("err");
         const cell = document.querySelector(`#mine-field .mcell[data-index="${info.index}"]`);
         if (cell) {
             cell.classList.add("boom");
@@ -196,6 +594,7 @@ function registerHandlers() {
     });
 
     connection.on("MinePoints", (info) => {
+        sfx("tick");
         // всплывающие очки над полем
         const wrap = $("mine-field-wrap").getBoundingClientRect();
         const pop = document.createElement("div");
@@ -209,6 +608,10 @@ function registerHandlers() {
 
     connection.on("MineGameFinished", (result) => {
         const solo = mineState && mineState.mode === "solo";
+        const iWonAny = result.winnerId === myId;
+        sfx(iWonAny ? "win" : "pop");
+        if (iWonAny && (result.payout > 0 || result.sapperPayout > 0 || result.terroristPayout > 0))
+            setTimeout(() => coinFly($("mine-field-wrap"), 8), 300);
         if (result.isDraw) {
             showBanner("Ничья!", "Сапёр: ничья — ставки возвращены.");
         } else if (result.isCashOut) {
@@ -254,6 +657,14 @@ function registerHandlers() {
 
     connection.on("ServerError", (message) => {
         showToast(message, "error");
+        // неверный пароль модератора — shake поля и возврат формы
+        if (message && message.indexOf("модератора") !== -1 && screens.join.classList.contains("active")) {
+            fieldError("mod-pass-field", true);
+            setJoinBusy(false);
+            joinStatus.className = "status error";
+            joinStatus.textContent = message;
+            return;
+        }
         const active = document.querySelector(".screen.active");
         if (active) {
             active.classList.remove("shake");
@@ -265,8 +676,11 @@ function registerHandlers() {
     connection.on("GameFinished", (result) => {
         if (result.isDraw) {
             showBanner("Ничья!", "Друзья победили дружбу. Ставки возвращены.");
+            sfx("pop");
         } else {
             const iWon = result.winner === mySide;
+            sfx(iWon ? "win" : "pop");
+            if (iWon) setTimeout(() => coinFly($("board"), 8), 300);
             const title = iWon ? "Победа! 🎉" : `Победа за ${result.winnerName}!`;
             const text = iWon
                 ? `Награда за выигрыш: +${result.prize} монет. Результат записан в таблицу лидеров.`
@@ -279,7 +693,8 @@ function registerHandlers() {
     connection.onreconnecting(() => setConnection(false, "переподключение…"));
     connection.onreconnected(() => {
         setConnection(true, "онлайн");
-        connection.invoke("Join", myName, isModerator ? "" : null);
+        if (myId) connection.invoke("Join", myName, myModPassword, myAvatar);
+        else connection.invoke("WatchLobby").then(renderJoinPreview).catch(() => {});
     });
     connection.onclose(() => setConnection(false, "нет связи"));
 }
@@ -468,7 +883,7 @@ async function placeBet(side) {
         showToast("Введите сумму ставки — целое число больше нуля.", "error");
         return;
     }
-    try { await connection.invoke("PlaceBet", side, amount); } catch (err) { console.error(err); }
+    try { await connection.invoke("PlaceBet", side, amount); sfx("coin"); } catch (err) { console.error(err); }
 }
 $("bet-x").addEventListener("click", () => placeBet("X"));
 $("bet-o").addEventListener("click", () => placeBet("O"));
@@ -476,6 +891,7 @@ $("bet-o").addEventListener("click", () => placeBet("O"));
 cells.forEach((cell) => {
     cell.addEventListener("click", async () => {
         if (!connection || cell.disabled) return;
+        sfx("tick");
         const index = Number(cell.dataset.index);
         try { await connection.invoke("MakeMove", index); } catch (err) { console.error(err); }
     });
@@ -535,7 +951,7 @@ function renderRooms(rooms) {
 
     rooms.forEach((r) => {
         const li = document.createElement("li");
-        li.className = "room-item";
+        li.className = "room-item" + (r.inGame ? " room-live" : "");
 
         const isMine = r.gameType === "minesweeper";
         const tag = isMine
@@ -545,11 +961,24 @@ function renderRooms(rooms) {
         const info = document.createElement("div");
         info.className = "room-info";
         info.innerHTML =
-            `<div class="room-name">${r.hasPassword ? "🔒 " : ""}${escapeHtml(r.name)} ${tag} ${r.inGame ? '<span class="live">идёт игра</span>' : ""}</div>` +
-            `<div class="room-sub">хост: ${escapeHtml(r.hostName)} · 🎮: ${r.playersCount} · 👁: ${r.spectatorsCount}` +
+            `<div class="room-name">${r.inGame ? '<span class="room-live-dot"></span>' : ""}${r.hasPassword ? "🔒 " : ""}${escapeHtml(r.name)} ${tag} ${r.inGame ? '<span class="live">идёт игра</span>' : ""}</div>` +
+            `<div class="room-sub">хост: ${escapeHtml(r.hostName)} · 🎮: ${r.playersCount} · 👁️: ${r.spectatorsCount}</div>` +
             (isMine
-                ? (r.mineBank > 0 ? ` · банк: ${r.mineBank}💰` : "")
-                : (r.potX + r.potO > 0 ? ` · банк ставок: ${r.potX + r.potO}💰` : "")) + `</div>`;
+                ? (r.mineBank > 0 ? `<div class="room-bank">🏦 банк: ${r.mineBank}💰</div>` : "")
+                : (r.potX + r.potO > 0 ? `<div class="room-bank">🏦 банк ставок: ${r.potX + r.potO}💰</div>` : ""));
+
+        // Live Room Card: аватары тех, кто уже в комнате
+        if (r.avatars && r.avatars.length) {
+            const avs = document.createElement("div");
+            avs.className = "room-avatars";
+            r.avatars.forEach((emoji) => {
+                const av = document.createElement("span");
+                av.className = "p-av";
+                av.textContent = emoji;
+                avs.appendChild(av);
+            });
+            li.appendChild(avs);
+        }
 
         const join = document.createElement("button");
         join.className = "btn primary small";
@@ -588,7 +1017,7 @@ function renderUsers(users) {
         const li = document.createElement("li");
 
         const name = document.createElement("span");
-        name.textContent = p.isModerator ? `🛡 ${p.name}` : p.name;
+        name.textContent = `${p.isModerator ? "🛡 " : ""}${p.name}`;
 
         li.appendChild(name);
 
@@ -883,7 +1312,7 @@ function renderMine(s) {
             (p.connectionId === s.turnId && !s.isFinished ? " turn" : "") +
             (p.isOut ? " out" : "");
         const role = s.mode === "asym" ? (p.isTerrorist ? "💣" : "🚩") : "🎮";
-        card.innerHTML = `${role} ${escapeHtml(p.name)} — <b>${p.score}</b>` + (p.isOut ? " 💥" : "");
+        card.innerHTML = `${role} ${p.avatar || "😎"} ${escapeHtml(p.name)} — <b>${p.score}</b>` + (p.isOut ? " 💥" : "");
         scores.appendChild(card);
     });
 
@@ -943,7 +1372,7 @@ function renderMine(s) {
             if (p.isOut) li.classList.add("out");
             if (p.connectionId === s.turnId && !s.isFinished) li.classList.add("turn-now");
             const role = s.mode === "asym" ? (p.isTerrorist ? "💣 террорист" : "🚩 сапёр") : "";
-            li.innerHTML = `<span>${escapeHtml(p.name)}${p.isOut ? " 💥" : ""}${p.isReady && !s.isStarted ? " ✔" : ""}</span>` +
+            li.innerHTML = `<span>${p.avatar || "😎"} ${escapeHtml(p.name)}${p.isOut ? " 💥" : ""}${p.isReady && !s.isStarted ? " ✔" : ""}</span>` +
                 `<span class="mrole">${role} ${p.score} очк.${p.connectionId === myId ? " · вы" : ""}</span>`;
             playersList.appendChild(li);
         });
@@ -957,7 +1386,7 @@ function renderMine(s) {
     } else {
         s.spectators.forEach((p) => {
             const li = document.createElement("li");
-            li.innerHTML = `<span>👁 ${escapeHtml(p.name)}${p.isModerator ? " 🛡" : ""}</span>` +
+            li.innerHTML = `<span>👁 ${p.avatar || "😎"} ${escapeHtml(p.name)}${p.isModerator ? " 🛡" : ""}</span>` +
                 (p.connectionId === myId ? `<span class="who">это вы</span>` : "");
             specList.appendChild(li);
         });
@@ -1019,6 +1448,7 @@ function renderMineField(s, me, myTurn, placing) {
 $("mine-field").addEventListener("click", async (e) => {
     const btn = e.target.closest(".mcell");
     if (!btn || !connection || btn.disabled) return;
+    sfx("tick");
     const index = Number(btn.dataset.index);
     try {
         if (mineState && mineState.isPlacing)
@@ -1081,7 +1511,7 @@ $("mine-bet-button").addEventListener("click", async () => {
     const amount = Number($("mine-bet-amount").value);
     if (!target) { showToast("Выберите игрока для ставки.", "error"); return; }
     if (!Number.isInteger(amount) || amount < 10) { showToast("Минимальная ставка — 10 монет.", "error"); return; }
-    try { await connection.invoke("MineBet", target, amount); } catch (err) { console.error(err); }
+    try { await connection.invoke("MineBet", target, amount); sfx("coin"); } catch (err) { console.error(err); }
 });
 
 $("mine-exit-room").addEventListener("click", async () => {
@@ -1248,7 +1678,7 @@ function renderPeople(list, items, titleFn) {
     }
     items.forEach((p) => {
         const li = document.createElement("li");
-        li.innerHTML = `<span>${escapeHtml(titleFn(p))}${p.isModerator ? " 🛡" : ""}</span>` +
+        li.innerHTML = `<span>${p.avatar || "😎"} ${escapeHtml(titleFn(p))}${p.isModerator ? " 🛡" : ""}</span>` +
             (p.isReady ? `<span class="rdy">готов ✔</span>` : "") +
             (p.connectionId === myId ? `<span class="who">это вы</span>` : "");
         list.appendChild(li);
@@ -1413,7 +1843,7 @@ function tick() {
     /** Свободные зоны фона: края экрана, полоса под топбаром и низ страницы. */
     function freeRects() {
         const spots = [];
-        const panels = Array.from(document.querySelectorAll(".screen.active .panel, .screen.active .join-card"))
+        const panels = Array.from(document.querySelectorAll(".screen.active .panel, .screen.active .join-card, .screen.active .preview-card"))
             .map((el) => el.getBoundingClientRect())
             .filter((r) => r.width > 0 && r.height > 0);
         const margin = 12;
@@ -1609,4 +2039,255 @@ function tick() {
 
     rebuild();
     if (!reduceMotion) requestAnimationFrame(loop);
+})();
+
+// ============================================================ звёзды с параллаксом
+// Слой фона из превью: три глубины звёзд, медленно дрейфуют и реагируют
+// на курсор. Кнопка ✨ гасит слой вместе с aurora и орбитами.
+
+(function starfield() {
+    const cvs = $("stars");
+    if (!cvs) return;
+    const sctx = cvs.getContext("2d");
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    let stars = [];
+    let W = 0, H = 0;
+    let mx = 0, my = 0;         // сглаженный параллакс курсора
+
+    function rebuild() {
+        W = cvs.width = window.innerWidth;
+        H = cvs.height = window.innerHeight;
+        const count = Math.min(160, Math.floor(W * H / 9000));
+        stars = Array.from({ length: count }, () => ({
+            x: Math.random() * W,
+            y: Math.random() * H,
+            z: 0.3 + Math.random() * 0.7,           // глубина: параллакс и яркость
+            r: 0.4 + Math.random() * 1.3,
+            tw: Math.random() * Math.PI * 2,        // фаза мерцания
+            vx: (Math.random() - 0.5) * 0.05
+        }));
+        draw(performance.now());
+    }
+
+    let targetMx = 0, targetMy = 0;
+    window.addEventListener("mousemove", (e) => {
+        targetMx = (e.clientX / window.innerWidth - 0.5) * 2;
+        targetMy = (e.clientY / window.innerHeight - 0.5) * 2;
+    });
+
+    function draw(time) {
+        sctx.clearRect(0, 0, W, H);
+        mx += (targetMx - mx) * 0.04;
+        my += (targetMy - my) * 0.04;
+        stars.forEach((s) => {
+            const twinkle = 0.55 + Math.sin(time / 1400 + s.tw) * 0.35;
+            const px = s.x - mx * 14 * s.z;
+            const py = s.y - my * 10 * s.z;
+            sctx.beginPath();
+            sctx.arc(px, py, s.r * s.z + 0.3, 0, Math.PI * 2);
+            sctx.fillStyle = `rgba(210,225,255,${(0.25 + s.z * 0.5) * twinkle})`;
+            sctx.fill();
+        });
+    }
+
+    function loop(time) {
+        if (fxOn && !document.hidden) {
+            stars.forEach((s) => {
+                s.x += s.vx * s.z;
+                if (s.x < -4) s.x = W + 4;
+                if (s.x > W + 4) s.x = -4;
+            });
+            draw(time);
+        }
+        requestAnimationFrame(loop);
+    }
+
+    window.addEventListener("resize", rebuild);
+    rebuild();
+    if (!reduceMotion) requestAnimationFrame(loop);
+})();
+
+// ============================================================ Text Scramble
+// Заголовок PlayHub «расшифровывается» при загрузке и периодически.
+
+(function scrambleTitle() {
+    const el = $("scramble-title");
+    if (!el) return;
+    const target = el.textContent;
+    const glyphs = "!<>-_\\/[]{}—=+*^?#$%&";
+    let busy = false;
+
+    function scramble() {
+        if (busy || !fxOn || document.hidden || !screens.join.classList.contains("active")) return;
+        busy = true;
+        const dur = 900;
+        const start = performance.now();
+        function step() {
+            const t = Math.min(1, (performance.now() - start) / dur);
+            const solved = Math.floor(t * target.length);
+            let out = "";
+            for (let i = 0; i < target.length; i++) {
+                out += i < solved ? target[i] : glyphs[Math.floor(Math.random() * glyphs.length)];
+            }
+            el.textContent = out;
+            if (t < 1 && fxOn && !document.hidden) setTimeout(step, 40);
+            else { el.textContent = target; busy = false; }
+        }
+        step();
+    }
+
+    scramble();
+    setInterval(scramble, 9000);
+})();
+
+// ============================================================ playable preview
+// Крестики-нолики против бота прямо на экране входа — без регистрации.
+// Бот играет сильно (минимакс с ограничением глубины), но иногда ошибается,
+// чтобы у гостя был шанс выиграть.
+
+(function playablePreview() {
+    const boardEl = $("pg-board");
+    const statusEl = $("pg-status");
+    if (!boardEl) return;
+
+    const LINES = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+    let grid = Array(9).fill("");
+    let over = false;
+    let botThinking = false;
+    const score = { w: 0, d: 0, l: 0 };
+    try {
+        const saved = JSON.parse(localStorage.getItem("ph-pg-score") || "null");
+        if (saved && typeof saved.w === "number") Object.assign(score, saved);
+    } catch (e) { /* свежий счёт */ }
+
+    const cellEls = [];
+    for (let i = 0; i < 9; i++) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "g-cell";
+        btn.dataset.index = i;
+        btn.setAttribute("aria-label", `Клетка ${i + 1}`);
+        btn.addEventListener("click", () => humanMove(i));
+        boardEl.appendChild(btn);
+        cellEls.push(btn);
+    }
+
+    function winnerOf(g) {
+        for (const line of LINES) {
+            const [a, b, c] = line;
+            if (g[a] && g[a] === g[b] && g[a] === g[c]) return { mark: g[a], line };
+        }
+        return g.every((v) => v) ? { mark: "draw", line: [] } : null;
+    }
+
+    function paint(winLine) {
+        grid.forEach((v, i) => {
+            const el = cellEls[i];
+            el.textContent = v === "X" ? "✕" : v === "O" ? "◯" : "";
+            el.className = "g-cell" + (v ? " " + v.toLowerCase() : "") +
+                (winLine && winLine.includes(i) ? " win" : "");
+            el.disabled = over || botThinking || v !== "";
+        });
+    }
+
+    function renderScore() {
+        $("pg-w").textContent = score.w;
+        $("pg-d").textContent = score.d;
+        $("pg-l").textContent = score.l;
+        localStorage.setItem("ph-pg-score", JSON.stringify(score));
+    }
+
+    function finish(result) {
+        over = true;
+        if (result.mark === "X") {
+            score.w++;
+            statusEl.textContent = "Победа! Теперь за настоящими монетами →";
+            statusEl.className = "g-status win";
+            sfx("win");
+        } else if (result.mark === "O") {
+            score.l++;
+            statusEl.textContent = "Бот победил. Реванш?";
+            statusEl.className = "g-status lose";
+            sfx("err");
+        } else {
+            score.d++;
+            statusEl.textContent = "Ничья! Достойно 🤝";
+            statusEl.className = "g-status";
+            sfx("pop");
+        }
+        renderScore();
+        paint(result.line);
+    }
+
+    // минимакс: X максимизирует, O минимизирует; глубина ограничена 6
+    function minimax(g, turn, depth) {
+        const res = winnerOf(g);
+        if (res) return res.mark === "X" ? 10 - depth : res.mark === "O" ? depth - 10 : 0;
+        if (depth >= 6) return 0;
+        let best = turn === "X" ? -Infinity : Infinity;
+        for (let i = 0; i < 9; i++) {
+            if (g[i]) continue;
+            g[i] = turn;
+            const val = minimax(g, turn === "X" ? "O" : "X", depth + 1);
+            g[i] = "";
+            best = turn === "X" ? Math.max(best, val) : Math.min(best, val);
+        }
+        return best;
+    }
+
+    function botMove() {
+        const empty = grid.map((v, i) => v ? -1 : i).filter((i) => i >= 0);
+        if (!empty.length) return;
+        let pick;
+        if (Math.random() < 0.22) {
+            // осечка бота: случайная клетка — шанс гостя
+            pick = empty[Math.floor(Math.random() * empty.length)];
+        } else {
+            let best = Infinity;
+            pick = empty[0];
+            for (const i of empty) {
+                grid[i] = "O";
+                const val = minimax(grid, "X", 0);
+                grid[i] = "";
+                if (val < best) { best = val; pick = i; }
+            }
+        }
+        grid[pick] = "O";
+        botThinking = false;
+        sfx("pop");
+        const res = winnerOf(grid);
+        if (res) finish(res);
+        else { statusEl.textContent = "Твой ход ✕"; statusEl.className = "g-status"; paint(); }
+    }
+
+    function humanMove(i) {
+        if (over || botThinking || grid[i]) return;
+        grid[i] = "X";
+        sfx("tick");
+        const res = winnerOf(grid);
+        if (res) { finish(res); return; }
+        botThinking = true;
+        statusEl.textContent = "Бот думает…";
+        paint();
+        setTimeout(botMove, 420 + Math.random() * 320);
+    }
+
+    function newGame() {
+        grid = Array(9).fill("");
+        over = false;
+        botThinking = false;
+        statusEl.textContent = "Твой ход ✕";
+        statusEl.className = "g-status";
+        paint();
+    }
+
+    $("pg-new").addEventListener("click", () => { newGame(); sfx("tick"); });
+    $("pg-reset-score").addEventListener("click", () => {
+        score.w = score.d = score.l = 0;
+        renderScore();
+        sfx("tick");
+    });
+
+    renderScore();
+    newGame();
 })();

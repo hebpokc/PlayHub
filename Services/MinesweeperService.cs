@@ -53,7 +53,8 @@ public class MinesweeperService
             g.Participants.Add(new MinePlayerState
             {
                 ConnectionId = player.ConnectionId,
-                Name = player.Name
+                Name = player.Name,
+                Avatar = player.Avatar
             });
 
             // хост сел играть (или место занято) — резерв больше не нужен
@@ -997,6 +998,7 @@ public class MinesweeperService
                 {
                     ConnectionId = p.ConnectionId,
                     Name = p.Name,
+                    Avatar = p.Avatar,
                     Score = p.Score,
                     Ante = p.Ante,
                     IsOut = p.IsOut,
@@ -1010,7 +1012,8 @@ public class MinesweeperService
                     Name = p.Name,
                     Side = "",
                     IsReady = false,
-                    IsModerator = p.IsModerator
+                    IsModerator = p.IsModerator,
+                    Avatar = p.Avatar
                 }).ToList(),
                 Bets = room.Bets.Select(b => new BetDto
                 {

@@ -15,6 +15,9 @@ builder.Services.AddSingleton<ChatService>();
 builder.Services.AddSingleton<MineRecordService>();
 builder.Services.AddSingleton<MinesweeperService>();
 builder.Services.AddSingleton<LobbyService>();
+builder.Services.AddSingleton<AvatarService>();
+builder.Services.AddSingleton<BonusService>();
+builder.Services.AddSingleton<WinFeedService>();
 
 var app = builder.Build();
 
@@ -42,6 +45,14 @@ lobby.RoomRemoved += async (room, reason) =>
     await hubContext.Clients.Group(groupName).SendAsync("RoomDeleted", reason);
     await hubContext.Clients.All.SendAsync("LobbyUpdated", lobby.GetLobbySnapshot());
     await hubContext.Clients.All.SendAsync("ChatMessage", chat.AddSystem($"Комната «{room.Name}» удалена: {reason}"));
+};
+
+// Лента последних побед: новая запись → рассылаем всем (гостям и игрокам).
+var winFeed = app.Services.GetRequiredService<WinFeedService>();
+winFeed.Changed += () =>
+{
+    var latest = winFeed.GetLatest();
+    hubContext.Clients.All.SendAsync("WinFeed", latest);
 };
 
 app.MapHub<GameHub>("/hubs/game");

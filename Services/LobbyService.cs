@@ -84,7 +84,7 @@ public class LobbyService
 
     // ---------------------------------------------------------------- вход
 
-    public Player? AddPlayer(string connectionId, string name, bool isModerator)
+    public Player? AddPlayer(string connectionId, string name, bool isModerator, string avatar)
     {
         name = LeaderboardService.CleanName(name);
 
@@ -93,7 +93,8 @@ public class LobbyService
             ConnectionId = connectionId,
             Name = name,
             Side = "",
-            IsModerator = isModerator
+            IsModerator = isModerator,
+            Avatar = avatar
         };
         Players[connectionId] = player;
         _wallets.GetBalance(name); // создаём кошелёк новичку
@@ -620,7 +621,8 @@ public class LobbyService
                         GameType = r.GameType,
                         MineMode = mine?.Mode ?? "",
                         MineDifficulty = mine?.Difficulty.Key ?? "",
-                        MineBank = isMine ? mine!.Bank + r.Bets.Sum(b => b.Amount) : 0
+                        MineBank = isMine ? mine!.Bank + r.Bets.Sum(b => b.Amount) : 0,
+                        Avatars = members.Take(4).Select(p => p.Avatar).ToList()
                     };
                 }
             }).ToList();
@@ -630,6 +632,30 @@ public class LobbyService
                 Rooms = rooms,
                 Users = all.Select(ToDto).ToList(),
                 Leaderboard = _leaderboard.GetTop(10)
+            };
+        }
+    }
+
+    /// <summary>
+    /// Публичный снимок для гостей на экране входа: онлайн, аватары,
+    /// витрина комнат. Отправляется всем подключениям, ещё не вошедшим в лобби.
+    /// </summary>
+    public LobbyPublicSnapshot GetPublicSnapshot()
+    {
+        lock (_lock)
+        {
+            var all = Players.Values.ToList();
+            var full = GetLobbySnapshot();
+            return new LobbyPublicSnapshot
+            {
+                Online = all.Count,
+                Rooms = full.Rooms
+                    .OrderByDescending(r => r.InGame)
+                    .ThenByDescending(r => r.PlayersCount + r.SpectatorsCount)
+                    .Take(3)
+                    .ToList(),
+                Users = all.OrderBy(p => p.JoinedAt).Take(8).Select(ToDto).ToList(),
+                Leaderboard = full.Leaderboard
             };
         }
     }
@@ -717,7 +743,8 @@ public class LobbyService
         Name = p.Name,
         Side = p.Side,
         IsReady = p.IsReady,
-        IsModerator = p.IsModerator
+        IsModerator = p.IsModerator,
+        Avatar = p.Avatar
     };
 
     private static string CleanRoomName(string? name)

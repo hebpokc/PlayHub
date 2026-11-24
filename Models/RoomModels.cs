@@ -82,6 +82,9 @@ public class RoomDto
 
     /// <summary>Общий банк сапёра (ante + ставки).</summary>
     public int MineBank { get; set; }
+
+    /// <summary>Аватары участников комнаты (до 4) для живой карточки.</summary>
+    public List<string> Avatars { get; set; } = new();
 }
 
 /// <summary>Статистика модератора (для «работника месяца»).</summary>
@@ -103,6 +106,15 @@ public class BalanceEntryDto
 /// <summary>Состояние лобби: комнаты + все онлайн + лидеры.</summary>
 public class LobbySnapshot
 {
+    public List<RoomDto> Rooms { get; set; } = new();
+    public List<PlayerDto> Users { get; set; } = new();
+    public List<LeaderboardEntry> Leaderboard { get; set; } = new();
+}
+
+/// <summary>Публичный снимок для гостей на экране входа.</summary>
+public class LobbyPublicSnapshot
+{
+    public int Online { get; set; }
     public List<RoomDto> Rooms { get; set; } = new();
     public List<PlayerDto> Users { get; set; } = new();
     public List<LeaderboardEntry> Leaderboard { get; set; } = new();

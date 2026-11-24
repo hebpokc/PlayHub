@@ -15,18 +15,25 @@ public class GameHub : Hub
     private readonly WalletService _wallets;
     private readonly ModerationService _moderation;
     private readonly MinesweeperService _mines;
+    private readonly AvatarService _avatars;
+    private readonly BonusService _bonuses;
+    private readonly WinFeedService _winFeed;
 
-    public GameHub(LobbyService lobby, ChatService chat, WalletService wallets, ModerationService moderation, MinesweeperService mines)
+    public GameHub(LobbyService lobby, ChatService chat, WalletService wallets, ModerationService moderation,
+        MinesweeperService mines, AvatarService avatars, BonusService bonuses, WinFeedService winFeed)
     {
         _lobby = lobby;
         _chat = chat;
         _wallets = wallets;
         _moderation = moderation;
         _mines = mines;
+        _avatars = avatars;
+        _bonuses = bonuses;
+        _winFeed = winFeed;
     }
 
     /// <summary>Шаг 1. Вход по имени. Модератор указывает доп. пароль.</summary>
-    public async Task Join(string? name, string? moderatorPassword)
+    public async Task Join(string? name, string? moderatorPassword, string? avatar = null)
     {
         var playerName = LeaderboardService.CleanName(name ?? "");
 
@@ -45,17 +52,25 @@ public class GameHub : Hub
             return;
         }
 
-        _lobby.AddPlayer(Context.ConnectionId, playerName, isModerator);
+        // аватар: присланный с формы входа или сохранённый ранее
+        var playerAvatar = string.IsNullOrEmpty(avatar)
+            ? _avatars.Get(playerName)
+            : _avatars.Set(playerName, avatar);
+
+        _lobby.AddPlayer(Context.ConnectionId, playerName, isModerator, playerAvatar);
 
         await Clients.Caller.SendAsync("Welcome", new
         {
             connectionId = Context.ConnectionId,
             name = playerName,
             isModerator,
-            balance = _wallets.GetBalance(playerName)
+            avatar = playerAvatar,
+            balance = _wallets.GetBalance(playerName),
+            bonus = _bonuses.GetStatus(playerName)
         });
 
         await Clients.Caller.SendAsync("ChatHistory", _chat.GetHistory());
+        await Clients.All.SendAsync("WinFeed", _winFeed.GetLatest());
         await Clients.All.SendAsync("UserJoined", playerName);
         await SendSystemMessage(isModerator
             ? $"{playerName} зашёл на сайт как модератор 🛡"
@@ -64,6 +79,74 @@ public class GameHub : Hub
     }
 
     // --------------------------------------------------------------- комнаты
+
+    /// <summary>
+    /// Гостевое подключение с экрана входа: живой счётчик онлайна,
+    /// аватары присутствующих и витрина комнат — до регистрации.
+    /// </summary>
+    public Task<LobbyPublicSnapshot> WatchLobby() => Task.FromResult(_lobby.GetPublicSnapshot());
+
+    /// <summary>Забрать бонус +50 (раз в 15 минут).</summary>
+    public async Task ClaimTimedBonus()
+    {
+        var player = _lobby.GetPlayer(Context.ConnectionId);
+        if (player == null)
+        {
+            await Clients.Caller.SendAsync("ServerError", "Сначала войдите на сайт.");
+            return;
+        }
+
+        var amount = _bonuses.ClaimTimed(player.Name);
+        if (amount == null)
+        {
+            await Clients.Caller.SendAsync("BonusDenied", "Бонус можно забирать раз в 15 минут.");
+            return;
+        }
+
+        var balance = _wallets.Add(player.Name, amount.Value);
+        await Clients.Caller.SendAsync("BonusClaimed", new
+        {
+            amount = amount.Value,
+            balance,
+            bonus = _bonuses.GetStatus(player.Name)
+        });
+    }
+
+    /// <summary>Забрать ежедневный бонус +25 (раз в сутки).</summary>
+    public async Task ClaimDailyBonus()
+    {
+        var player = _lobby.GetPlayer(Context.ConnectionId);
+        if (player == null)
+        {
+            await Clients.Caller.SendAsync("ServerError", "Сначала войдите на сайт.");
+            return;
+        }
+
+        var amount = _bonuses.ClaimDaily(player.Name);
+        if (amount == null)
+        {
+            await Clients.Caller.SendAsync("BonusDenied", "Ежедневный бонус уже забран — возвращайтесь завтра!");
+            return;
+        }
+
+        var balance = _wallets.Add(player.Name, amount.Value);
+        await Clients.Caller.SendAsync("BonusClaimed", new
+        {
+            amount = amount.Value,
+            balance,
+            bonus = _bonuses.GetStatus(player.Name)
+        });
+    }
+
+    /// <summary>Сменить аватар (проверяется по белому списку).</summary>
+    public async Task SetAvatar(string? avatar)
+    {
+        var player = _lobby.GetPlayer(Context.ConnectionId);
+        if (player == null) return;
+
+        player.Avatar = _avatars.Set(player.Name, avatar);
+        await BroadcastLobby();
+    }
 
     public async Task CreateRoom(string? roomName, string? password)
     {
@@ -185,6 +268,7 @@ public class GameHub : Hub
             prize = LobbyService.WinPrizeAmount
         });
         await SendSystemMessage($"{leaverName} покинул матч во время игры — победа за {winnerName} 🏳");
+        _winFeed.Add(winnerName, LobbyService.WinPrizeAmount, "✕◯ Форфит");
 
         foreach (var p in _lobby.Players.Values.Where(p => p.CurrentRoomId == room.Id))
             await Clients.Client(p.ConnectionId).SendAsync("BalanceUpdated", _wallets.GetBalance(p.Name));
@@ -293,6 +377,7 @@ public class GameHub : Hub
             await SendSystemMessage(snapshot.IsDraw
                 ? "Партия закончилась вничью 🤝 — ставки возвращены"
                 : $"{winnerName} побеждает! 🎉 +{snapshot.WinnerPrize} монет");
+            if (!snapshot.IsDraw) _winFeed.Add(winnerName, snapshot.WinnerPrize, "✕◯ Крестики-нолики");
 
             // обновляем балансы всем в комнате
             foreach (var p in _lobby.Players.Values.Where(p => p.CurrentRoomId == room.Id))
@@ -584,9 +669,20 @@ public class GameHub : Hub
                     ? $"Сапёр: {g.WinnerName} побеждает! 🎉 +{g.WinnerPayout} монет из банка"
                     : $"Сапёр: партия окончена, победитель — {g.WinnerName}");
 
+        if (!g.IsDraw && !string.IsNullOrEmpty(g.WinnerName) && g.WinnerPayout > 0)
+            _winFeed.Add(g.WinnerName, g.WinnerPayout, MineGameLabel(g.Mode));
+
         await RefreshBalances(room);
         await BroadcastLobby();
     }
+
+    private static string MineGameLabel(string mode) => mode switch
+    {
+        "pvp" => "💣 Сапёр-дуэль",
+        "asym" => "💣 Сапёр vs Террорист",
+        "cinema" => "🎬 Кинотеатр",
+        _ => "💣 Сапёр"
+    };
 
     private async Task RefreshBalances(Room room)
     {
@@ -800,6 +896,10 @@ public class GameHub : Hub
         {
             await Clients.Client(p.ConnectionId).SendAsync("LobbyUpdated", snapshot);
         }
+
+        // гости на экране входа: живой онлайн, аватары и витрина комнат
+        var guests = Clients.AllExcept(snapshot.Users.Select(u => u.ConnectionId).ToList());
+        await guests.SendAsync("LobbyPreview", _lobby.GetPublicSnapshot());
     }
 
     private async Task SendRoomToCaller()

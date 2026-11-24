@@ -5,18 +5,35 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PlayHub · игровая комната онлайн</title>
     <link rel="stylesheet" href="css/style.css" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8E%AE%3C/text%3E%3C/svg%3E" />
 </head>
 <body>
 
+    <!-- Фоновые слои превью: aurora-пятна, звёзды с параллаксом, плёночный шум -->
+    <div id="aurora-wrap" class="bg-layer amb" aria-hidden="true"><i class="aurora au1"></i><i class="aurora au2"></i><i class="aurora au3"></i></div>
+    <canvas id="stars" class="bg-layer" aria-hidden="true"></canvas>
+    <div id="grain" class="bg-layer" aria-hidden="true"></div>
+
     <canvas id="bg-anim"></canvas>
     <canvas id="confetti"></canvas>
+
+    <!-- Пульт: звук и фоновые эффекты (всегда сверху) -->
+    <div class="fx-ctrl">
+        <button class="ic-btn" id="fx-btn" type="button" aria-pressed="true" title="Фоновые эффекты вкл/выкл">✨</button>
+        <button class="ic-btn" id="snd-btn" type="button" aria-pressed="true" title="Звук вкл/выкл">🔊</button>
+    </div>
+
+    <!-- Лента последних побед: видна на входе, в лобби и в комнатах -->
+    <div id="win-ticker" class="ticker amb" hidden>
+        <div class="ticker-track" id="ticker-track"></div>
+    </div>
 
     <!-- ======================= ЭКРАН 1: О САЙТЕ + ВВОД ИМЕНИ ======================= -->
     <section id="screen-join" class="screen active">
         <div class="join-layout">
 
             <!-- Портал входа: светящееся кольцо с орбитами игровых символов -->
-            <div class="portal" aria-hidden="true">
+            <div class="portal amb" id="portal">
                 <div class="portal-ring"></div>
                 <div class="portal-ring inner"></div>
                 <div class="portal-core">
@@ -25,49 +42,90 @@
                         <span class="core-face core-mine">💣</span>
                     </span>
                 </div>
-                <div class="orbit o1"><span class="orbit-icon"><span class="orbit-glyph">🎮</span></span></div>
-                <div class="orbit o2 rev"><span class="orbit-icon"><span class="orbit-glyph">🎯</span></span></div>
-                <div class="orbit o3 rev"><span class="orbit-icon"><span class="orbit-glyph">🎲</span></span></div>
-                <div class="orbit o4"><span class="orbit-icon"><span class="orbit-glyph">🏆</span></span></div>
-                <div class="orbit o5 rev"><span class="orbit-icon"><span class="orbit-glyph">⭐</span></span></div>
-                <div class="orbit o6"><span class="orbit-icon"><span class="orbit-glyph">🕹️</span></span></div>
-                <div class="orbit o7 rev"><span class="orbit-icon"><span class="orbit-glyph">💎</span></span></div>
-                <div class="orbit o8"><span class="orbit-icon"><span class="orbit-glyph">🎰</span></span></div>
+                <div class="portal-comet"><i></i></div>
+                <div class="orbit o1"><span class="orbit-icon"><button class="orbit-chip" type="button" data-name="Крестики-нолики" tabindex="-1">🎮</button></span></div>
+                <div class="orbit o2 rev"><span class="orbit-icon"><button class="orbit-chip" type="button" data-name="Сапёр" tabindex="-1">💣</button></span></div>
+                <div class="orbit o3 rev"><span class="orbit-icon"><button class="orbit-chip" type="button" data-name="PvP-дуэли" tabindex="-1">⚔️</button></span></div>
+                <div class="orbit o4"><span class="orbit-icon"><button class="orbit-chip" type="button" data-name="Турниры" tabindex="-1">🏆</button></span></div>
+                <div class="orbit o5 rev"><span class="orbit-icon"><button class="orbit-chip" type="button" data-name="Кинотеатр" tabindex="-1">🎬</button></span></div>
+                <div class="orbit o6"><span class="orbit-icon"><button class="orbit-chip" type="button" data-name="Ставки ×2" tabindex="-1">🎰</button></span></div>
+                <div class="orbit o7 rev"><span class="orbit-icon"><button class="orbit-chip" type="button" data-name="Монеты" tabindex="-1">💎</button></span></div>
+                <div class="orbit o8"><span class="orbit-icon"><button class="orbit-chip" type="button" data-name="Наблюдение" tabindex="-1">👁️</button></span></div>
+                <div class="orbit-cap" id="orbit-cap">PlayHub</div>
             </div>
 
-            <div class="card join-card">
-            <div class="logo logo-swap" aria-hidden="true">
-                <span class="logo-face face-xo"><span class="logo-x">✕</span><span class="logo-o">◯</span></span>
-                <span class="logo-face face-mine">💣</span>
+            <div class="join-right">
+            <div class="card join-card" id="join-card">
+
+            <h1 id="join-title"><span id="scramble-title">PlayHub</span> <span class="grad-text">online</span></h1>
+
+            <p class="live-counter join-live"><span class="live-dot amb"></span><b id="join-online">0</b>&nbsp;онлайн · <b id="join-rooms">0</b>&nbsp;комнат</p>
+
+            <div class="presence-row">
+                <div class="presence" id="join-presence"></div>
+                <span class="p-plus" id="join-presence-plus" hidden>+0</span>
             </div>
 
-            <h1>PlayHub <span>online</span></h1>
             <p class="lead">
                 Игровой хаб в реальном времени на <b>ASP.NET Core</b> и <b>SignalR</b>:
-                <b>крестики-нолики</b> и <b>сапёр</b> — от одиночных партий до дуэлей
-                с банком ставок. Создавайте комнаты, играйте, наблюдайте и зарабатывайте монеты.
+                крестики-нолики и сапёр — от одиночных партий до дуэлей с банком ставок.
             </p>
 
-            <ul class="about">
-                <li><span>1</span> Введите имя и попадёте в лобби со списком комнат.</li>
-                <li><span>2</span> Выберите игру: <b class="x-color">✕</b><b class="o-color">◯</b> крестики-нолики или <b>💣</b> сапёр — одиночка, PvP, «Сапёр vs Террорист» и «Кинотеатр» на 3–8 игроков.</li>
-                <li><span>3</span> Победы приносят монеты, игроки вносят ставки в банк, наблюдатели ставят на победителя и забирают двойную ставку.</li>
-            </ul>
+            <div class="game-chips" id="game-chips">
+                <button class="gchip" type="button" data-name="Крестики-нолики">❌⭕ Крестики-нолики</button>
+                <button class="gchip" type="button" data-name="Сапёр">💣 Сапёр</button>
+                <button class="gchip" type="button" data-name="Сапёр vs Террорист">💣 vs 🚩 Асим</button>
+                <button class="gchip" type="button" data-name="Кинотеатр">🎬 Кинотеатр</button>
+            </div>
+            <p class="chip-desc" id="chip-desc">Наведите на игру — расскажем, как она работает. Победы приносят монеты, наблюдатели ставят на победителя и забирают ×2.</p>
 
-            <form id="join-form" autocomplete="off">
-                <input id="name-input" type="text" maxlength="16" placeholder="Ваше имя" required />
-                <button type="submit" id="join-button" class="btn primary">Войти →</button>
-            </form>
+            <div class="segmented" id="join-tabs" data-active="player" role="tablist" aria-label="Режим входа">
+                <span class="seg-thumb"></span>
+                <button role="tab" type="button" data-tab="player" aria-selected="true">🎮 Игрок</button>
+                <button role="tab" type="button" data-tab="mod" aria-selected="false">🛡 Модератор</button>
+            </div>
 
-            <!-- Вход как модератор -->
-            <button id="mod-toggle" class="btn ghost wide" type="button">🛡 Войти как модератор</button>
-            <form id="mod-form" autocomplete="off" hidden>
-                <input id="mod-name-input" type="text" maxlength="16" placeholder="Имя (можно любое)" required />
-                <input id="mod-pass-input" type="password" maxlength="32" placeholder="Пароль модератора" required />
-                <button type="submit" id="mod-join-button" class="btn primary">Войти как модератор →</button>
+            <form id="join-form" autocomplete="off" novalidate>
+                <div class="av-row" id="av-row" role="radiogroup" aria-label="Выбор аватара"></div>
+                <div class="av-cap" id="av-cap">Аватар: 😎</div>
+
+                <div class="field" id="name-field">
+                    <input id="name-input" type="text" maxlength="16" placeholder=" " autocomplete="off" />
+                    <label for="name-input">Ваше имя</label>
+                    <p class="f-err">2–16 символов: буквы, цифры, пробел, _ и -</p>
+                </div>
+
+                <div class="field" id="mod-pass-field" hidden>
+                    <input id="mod-pass-input" type="password" maxlength="32" placeholder=" " autocomplete="off" />
+                    <label for="mod-pass-input">Пароль модератора</label>
+                    <p class="f-err">Неверный пароль модератора</p>
+                </div>
+
+                <div class="mag-zone" id="join-mag-zone">
+                    <button type="submit" id="join-button" class="btn primary shine mag-btn"><span class="lbl">Войти →</span><span class="spinner" hidden></span></button>
+                </div>
             </form>
 
             <p id="join-status" class="status"></p>
+            <p class="a-hint">Побеждай → получай монеты → делай ставки в дуэлях</p>
+            </div>
+
+            <!-- Играбельное превью: партия против бота до регистрации -->
+            <div class="card preview-card">
+                <div class="preview-copy">
+                    <h3>Сыграй с ботом, не входя 🎮</h3>
+                    <p>Первый клик — уже вовлечение. Победи бота в крестики-нолики, потом входи в хаб за настоящими ставками и монетами.</p>
+                    <div class="g-score"><span>Ты <b id="pg-w">0</b></span><span>Ничьи <b id="pg-d">0</b></span><span>Бот <b id="pg-l">0</b></span></div>
+                </div>
+                <div class="g-side">
+                    <div class="g-board" id="pg-board" role="grid" aria-label="Крестики-нолики против бота"></div>
+                    <div class="g-status" id="pg-status" role="status">Твой ход ✕</div>
+                    <div class="g-row">
+                        <button class="btn primary small" id="pg-new" type="button">Новая партия ↺</button>
+                        <button class="g-reset" id="pg-reset-score" type="button">сбросить счёт</button>
+                    </div>
+                </div>
+            </div>
             </div>
         </div>
     </section>
@@ -81,18 +139,43 @@
                 <span class="chip"><i id="conn-dot" class="dot"></i> <span id="conn-text">подключение…</span></span>
                 <span class="chip">Онлайн: <b id="online-count">0</b></span>
                 <span class="chip">Вы: <b id="my-name">—</b> <b id="my-balance" class="money">💰 0</b></span>
-                <a class="btn ghost small" id="rules-button" href="rules.html" target="_blank" rel="noopener">📖 Правила</a>
+                <a class="btn ghost small" id="rules-button" href="rules.html">📖 Правила</a>
                 <button id="leave-button" class="btn ghost small" type="button">Выйти</button>
             </div>
         </header>
 
         <main class="hub lobby-hub">
 
-            <!-- ЛЕВАЯ КОЛОНКА: комнаты -->
+            <!-- ЛЕВАЯ КОЛОНКА: бонус, комнаты -->
             <aside class="panel">
+                <div class="bonus-card" id="bonus-card">
+                    <div class="bonus-rows">
+                        <div class="bonus-row">
+                            <span class="bonus-ic">🎁</span>
+                            <div class="bonus-info">
+                                <b>Ежедневный бонус</b>
+                                <span id="daily-bonus-text">+25 монет за вход — забрать</span>
+                            </div>
+                            <button class="btn cashout small" id="daily-bonus-button" type="button">Забрать</button>
+                        </div>
+                        <div class="bonus-row">
+                            <span class="bonus-ic">⏳</span>
+                            <div class="bonus-info">
+                                <b>Бонус каждые 15 минут</b>
+                                <span id="timed-bonus-text">+50 монет — можно забрать</span>
+                            </div>
+                            <button class="btn ghost small" id="timed-bonus-button" type="button">Забрать</button>
+                        </div>
+                    </div>
+                </div>
+
                 <h2 class="panel-title">Комнаты</h2>
                 <button id="open-create-menu" class="btn primary wide" type="button">+ Создать комнату</button>
-                <ul id="rooms-list" class="rooms"></ul>
+                <ul id="rooms-list" class="rooms">
+                    <li class="sk-room skeleton-mode"><div class="sk-av"></div><div class="sk-lines"><div class="sk-line" style="width:82%"></div><div class="sk-line" style="width:60%"></div></div></li>
+                    <li class="sk-room skeleton-mode"><div class="sk-av"></div><div class="sk-lines"><div class="sk-line" style="width:70%"></div><div class="sk-line" style="width:52%"></div></div></li>
+                    <li class="sk-room skeleton-mode"><div class="sk-av"></div><div class="sk-lines"><div class="sk-line" style="width:76%"></div><div class="sk-line" style="width:44%"></div></div></li>
+                </ul>
             </aside>
 
             <!-- ЦЕНТР: чат -->
@@ -190,7 +273,7 @@
                 <span class="chip"><i id="room-conn-dot" class="dot"></i> <span id="room-conn-text">подключение…</span></span>
                 <span class="chip">Баланс: <b id="room-my-balance" class="money">💰 0</b></span>
                 <span class="chip">Вы: <b id="room-my-name">—</b></span>
-                <a class="btn ghost small" href="rules.html" target="_blank" rel="noopener">📖 Правила</a>
+                <a class="btn ghost small rules-link" href="rules.html">📖 Правила</a>
                 <button id="delete-room-button" class="btn ghost small danger" type="button" hidden>🗑 Удалить комнату</button>
                 <button id="exit-room-button" class="btn ghost small" type="button">← В лобби</button>
             </div>
@@ -213,7 +296,7 @@
                         <span class="role-status" id="seat-o">свободно</span>
                     </button>
                     <button class="role" data-side="" type="button">
-                        <span class="role-mark">👁</span>
+                        <span class="role-mark">👁️</span>
                         <span class="role-name">Быть наблюдателем</span>
                         <span class="role-status" id="seat-spec">смотреть игру</span>
                     </button>
@@ -295,7 +378,7 @@
                 <span class="chip"><i id="mine-conn-dot" class="dot"></i> <span id="mine-conn-text">подключение…</span></span>
                 <span class="chip">Баланс: <b id="mine-my-balance" class="money">💰 0</b></span>
                 <span class="chip">Вы: <b id="mine-my-name">—</b></span>
-                <a class="btn ghost small" href="rules.html" target="_blank" rel="noopener">📖 Правила</a>
+                <a class="btn ghost small rules-link" href="rules.html">📖 Правила</a>
                 <button id="mine-delete-room" class="btn ghost small danger" type="button" hidden>🗑 Удалить комнату</button>
                 <button id="mine-exit-room" class="btn ghost small" type="button">← В лобби</button>
             </div>
@@ -368,8 +451,8 @@
         </main>
     </section>
 
-    <!-- Всплывающие сообщения -->
-    <div id="toast" class="toast"></div>
+    <!-- Стек уведомлений (Toast Slide-in) -->
+    <div id="toast-host" aria-live="polite"></div>
 
     <!-- ============ Модалка создания комнаты: выбор игры ============ -->
     <div id="create-menu" class="banner">
@@ -412,7 +495,7 @@
                     <label class="field-label">Режим</label>
                     <div class="option-row" id="mine-mode-options">
                         <button class="option active" type="button" data-mode="solo">👤 Одиночка</button>
-                        <button class="option" type="button" data-mode="pvp">⚔ PvP</button>
+                        <button class="option" type="button" data-mode="pvp">⚔️ PvP</button>
                         <button class="option" type="button" data-mode="asym">💣 vs 🚩</button>
                         <button class="option" type="button" data-mode="cinema">🎬 Кинотеатр</button>
                     </div>

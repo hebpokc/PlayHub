@@ -1,3 +1,5 @@
+using PlayHub.Services;
+
 namespace PlayHub.Models;
 
 /// <summary>
@@ -16,6 +18,9 @@ public class Player
 
     /// <summary>Вошёл по паролю модератора.</summary>
     public bool IsModerator { get; set; }
+
+    /// <summary>Эмодзи-аватар игрока (выбирается на экране входа).</summary>
+    public string Avatar { get; set; } = AvatarService.DefaultAvatar;
 
     /// <summary>Id комнаты, где сейчас пользователь ("" — в лобби).</summary>
     public string CurrentRoomId { get; set; } = "";
@@ -80,6 +85,7 @@ public class PlayerDto
     public string Side { get; set; } = "";
     public bool IsReady { get; set; }
     public bool IsModerator { get; set; }
+    public string Avatar { get; set; } = AvatarService.DefaultAvatar;
 }
 
 /// <summary>
