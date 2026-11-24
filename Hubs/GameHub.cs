@@ -133,15 +133,61 @@ public class GameHub : Hub
         var room = player == null ? null : _lobby.GetRoomOf(player);
         var roomName = room?.Name ?? "";
 
+        // уход игрока X/O во время матча = поражение: зафиксируем исход для рассылки
+        var forfeit = GetForfeitContext(room, Context.ConnectionId);
+
         _lobby.LeaveRoom(Context.ConnectionId);
         if (room != null) await Groups.RemoveFromGroupAsync(Context.ConnectionId, RoomGroup(room.Id));
 
         if (roomName != "")
             await SendSystemMessage($"{_lobby.GetName(Context.ConnectionId)} покинул комнату «{roomName}»");
 
+        if (forfeit != null)
+            await AnnounceForfeit(room!, forfeit.Value.Winner, forfeit.Value.WinnerName, forfeit.Value.LeaverName);
+
         await BroadcastLobby();
-        if (room != null) await BroadcastRoom(room.Id);
+        if (room != null)
+        {
+            // уход сапёра мог закончить партию (форфит) — сообщим остальным
+            if (room.GameType == "minesweeper") await AfterMineAction(room);
+            await BroadcastRoom(room.Id);
+        }
         await Clients.Caller.SendAsync("RoomLeft");
+    }
+
+    private (string Winner, string WinnerName, string LeaverName)? GetForfeitContext(Room? room, string connectionId)
+    {
+        if (room == null || room.GameType != "tictactoe") return null;
+        lock (room.Sync)
+        {
+            var g = room.Game;
+            if (!g.IsStarted || g.IsFinished) return null;
+
+            var isX = g.PlayerXId == connectionId;
+            var isO = g.PlayerOId == connectionId;
+            if (!isX && !isO) return null;
+
+            var winner = isX ? "O" : "X";
+            var winnerId = isX ? g.PlayerOId : g.PlayerXId;
+            return (winner, _lobby.GetName(winnerId), _lobby.GetName(connectionId));
+        }
+    }
+
+    private async Task AnnounceForfeit(Room room, string winner, string winnerName, string leaverName)
+    {
+        await RoomClients(room).SendAsync("GameFinished", new
+        {
+            winner,
+            winnerName,
+            loserName = leaverName,
+            isDraw = false,
+            winLine = new int[0],
+            prize = LobbyService.WinPrizeAmount
+        });
+        await SendSystemMessage($"{leaverName} покинул матч во время игры — победа за {winnerName} 🏳");
+
+        foreach (var p in _lobby.Players.Values.Where(p => p.CurrentRoomId == room.Id))
+            await Clients.Client(p.ConnectionId).SendAsync("BalanceUpdated", _wallets.GetBalance(p.Name));
     }
 
     /// <summary>Снимок комнаты для текущего подключения.</summary>
@@ -648,13 +694,10 @@ public class GameHub : Hub
             return;
         }
 
-        // возвраты ante/ставок при удалении комнаты сапёра могли задеть
-        // любого пользователя (в т.ч. ставочника из другой комнаты) — обновляем всем
-        if (removed.GameType == "minesweeper")
-        {
-            foreach (var p in _lobby.Players.Values)
-                await Clients.Client(p.ConnectionId).SendAsync("BalanceUpdated", _wallets.GetBalance(p.Name));
-        }
+        // возвраты/выплаты при удалении комнаты могли задеть любого пользователя
+        // (в т.ч. ставочника из другой комнаты) — обновляем всем
+        foreach (var p in _lobby.Players.Values)
+            await Clients.Client(p.ConnectionId).SendAsync("BalanceUpdated", _wallets.GetBalance(p.Name));
     }
 
     private bool RequireModerator(out string error)
@@ -694,6 +737,9 @@ public class GameHub : Hub
         var player = _lobby.GetPlayer(Context.ConnectionId);
         var room = player == null ? null : _lobby.GetRoomOf(player);
 
+        // дисконнект игрока X/O во время матча = поражение: зафиксируем исход для рассылки
+        var forfeit = GetForfeitContext(room, Context.ConnectionId);
+
         _lobby.RemovePlayer(Context.ConnectionId);
 
         if (player != null)
@@ -702,8 +748,16 @@ public class GameHub : Hub
             await SendSystemMessage($"{player.Name} покинул сайт");
         }
 
+        if (forfeit != null)
+            await AnnounceForfeit(room!, forfeit.Value.Winner, forfeit.Value.WinnerName, forfeit.Value.LeaverName);
+
         await BroadcastLobby();
-        if (room != null) await BroadcastRoom(room.Id);
+        if (room != null)
+        {
+            // дисконнект сапёра мог закончить партию (форфит) — сообщим остальным
+            if (room.GameType == "minesweeper") await AfterMineAction(room);
+            await BroadcastRoom(room.Id);
+        }
         await base.OnDisconnectedAsync(exception);
     }
 

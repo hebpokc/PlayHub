@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Правила · PlayHub</title>
+    <link rel="stylesheet" href="css/rules.css" />
+</head>
+<body>
+
+    <canvas id="bg-anim"></canvas>
+
+    <header class="rules-topbar reveal">
+        <div class="brand">
+            <span class="brand-swap" aria-hidden="true">
+                <span class="brand-face face-xo"><span class="logo-x">✕</span><span class="logo-o">◯</span></span>
+                <span class="brand-face face-mine">💣</span>
+            </span>
+            PlayHub
+        </div>
+        <h1>Правила игр</h1>
+        <a class="btn ghost small" href="index.html">← В игру</a>
+    </header>
+
+    <main class="rules-wrap">
+
+        <!-- ================= ОБЩЕЕ ================= -->
+        <section class="rules-card reveal" id="common">
+            <div class="card-head">
+                <span class="card-emoji float">🏛</span>
+                <h2>Общие правила PlayHub</h2>
+            </div>
+            <ul class="rules-list">
+                <li><b>💰 Баланс.</b> Каждый новичок получает <b>500 монет</b>. Победы приносят деньги, проигрыши и ставки — забирают.</li>
+                <li><b>🚪 Комнаты.</b> Создавайте комнаты с паролем или без. Названия комнат уникальны — двух одинаковых не бывает.</li>
+                <li><b>🚪 Выход во время партии = поражение.</b> Покинул комнату или отключился, играя за сторону — сопернику засчитывается победа.</li>
+                <li><b>🗑 Удаление комнаты.</b> Хост (или модератор) может удалить комнату. Если партия уже шла — всем играющим засчитывается поражение.</li>
+                <li><b>👁 Наблюдатели.</b> Наблюдатели могут делать ставки на игроков. Угадали победителя — забираете долю из пула, ошиблись — ставка сгорает.</li>
+                <li><b>🛡 Модераторы.</b> Следят за порядком: банят и кикнут нарушителей. Модератор не может тронуть другого модератора.</li>
+                <li><b>🎴 Анте и комиссия.</b> В платных режимах игроки вносят ставку (ante) в общий банк. Комиссия хаба — <b>5%</b> с выигрыша.</li>
+            </ul>
+        </section>
+
+        <!-- ================= КН ================= -->
+        <section class="rules-card reveal" id="tictactoe">
+            <div class="card-head">
+                <span class="card-emoji float"><span class="logo-x">✕</span><span class="logo-o">◯</span></span>
+                <h2>Крестики-нолики</h2>
+            </div>
+            <ul class="rules-list">
+                <li><b>🎯 Цель.</b> Соберите линию из трёх своих знаков — по горизонтали, вертикали или диагонали.</li>
+                <li><b>⚔ Матч.</b> Один игрок за <b class="x-color">✕</b>, другой за <b class="o-color">◯</b>. Первым ходит <b class="x-color">✕</b>. Оба нажимают «Готов» — матч начинается.</li>
+                <li><b>🏆 Награда.</b> Победитель получает <b>+100 монет</b> + выигрыш ставок. Ничья — ставки возвращаются.</li>
+                <li><b>🎰 Ставки наблюдателей.</b> До старта матча зрители ставят на <b class="x-color">✕</b> или <b class="o-color">◯</b>. Угадали — <b>×2</b> от ставки.</li>
+                <li><b>🔄 Реванш.</b> После партии кнопка «Играть снова» очищает доску — ставьте заново.</li>
+            </ul>
+        </section>
+
+        <!-- ================= САПЁР: ОБЩЕЕ ================= -->
+        <section class="rules-card reveal" id="minesweeper">
+            <div class="card-head">
+                <span class="card-emoji float pulse-mine">💣</span>
+                <h2>Сапёр · общее</h2>
+            </div>
+            <ul class="rules-list">
+                <li><b>🖱 Управление.</b> Левый клик — открыть клетку, правый — поставить/снять флажок.</li>
+                <li><b>🛡 Первый ход безопасен.</b> Мины раскладываются после вашего первого клика — вокруг него мин не будет.</li>
+                <li><b>🔢 Числа.</b> Цифра в клетке — сколько мин в восьми соседних. Ноль открывается каскадом.</li>
+                <li><b>📈 Очки.</b> +1 очко за каждую открытую клетку. Очки идут в таблицу рекордов (одиночка) и решают победителя (PvP).</li>
+                <li><b>🎚 Сложности.</b> Лёгкая 9×9 (10 мин) · Средняя 16×16 (40 мин) · Тяжёлая 30×16 (99 мин).</li>
+                <li><b>🎬 Хост.</b> Комнату создаёт хост. В одиночном режиме <b>10 секунд</b> место игрока зарезервировано за ним.</li>
+            </ul>
+
+            <div class="mode-grid">
+                <article class="mode-card solo reveal">
+                    <h3><span class="m-emoji">👤</span> Одиночка</h3>
+                    <p>Один игрок, остальные наблюдают и болеют. Максимальный счёт до подрыва — в рекорды!</p>
+                    <ul>
+                        <li>Ставок и ante нет — только рекорды 🏅</li>
+                        <li>Победа = всё поле разминировано</li>
+                        <li>Рекорд пишется по сложности отдельно</li>
+                    </ul>
+                </article>
+
+                <article class="mode-card pvp reveal">
+                    <h3><span class="m-emoji">⚔</span> PvP-дуэль</h3>
+                    <p>Два игрока по очереди открывают клетки на общем поле. Ante вносит каждый.</p>
+                    <ul>
+                        <li>Ход по таймеру: 30с + 5с за каждую «тяжёлую» цифру</li>
+                        <li>Открыли «0» — бонусный ход 💫</li>
+                        <li>Подорвался — победа сопернику, банк ×0.95</li>
+                        <li>Поле разминировано — победа по очкам</li>
+                        <li>Просрочка хода −5 очков и передача хода</li>
+                    </ul>
+                </article>
+
+                <article class="mode-card asym reveal">
+                    <h3><span class="m-emoji">💣</span> Сапёр vs Террорист</h3>
+                    <p>Террорист secretly расставляет мины, сапёр разминирует. Роли меняются каждый раунд.</p>
+                    <ul>
+                        <li>Террорист видит поле и ставит мины — <b>60 секунд</b></li>
+                        <li>Счётчик сверху показывает, сколько мин осталось</li>
+                        <li>Затем террорист только наблюдает 👀 — он знает, где мины</li>
+                        <li>Сапёр без таймера: победа — пометить все мины флажками</li>
+                        <li>Подрыв или сдача сапёра — победа террориста</li>
+                    </ul>
+                </article>
+
+                <article class="mode-card cinema reveal">
+                    <h3><span class="m-emoji">🎬</span> Кинотеатр</h3>
+                    <p>От 3 до 8 игроков по очереди открывают клетки. Зал замирает — взрыв зрелищный.</p>
+                    <ul>
+                        <li>До старта видно, сколько игроков ещё нужно</li>
+                        <li>Ход по таймеру: <b>20 секунд</b> на клетку</li>
+                        <li>Просрочка хода = выбывание из партии</li>
+                        <li>Взрыв = выбывание. Партия идёт до последнего выжившего</li>
+                        <li>Поле разминировано — победа по очкам среди живых</li>
+                        <li>Последний выживший забирает банк ×0.95</li>
+                    </ul>
+                </article>
+            </div>
+
+            <div class="rules-note reveal">
+                <b>💡 Про деньги.</b> Ante (от 10💰) вносят игроки при нажатии «Готов». Победитель забирает банк минус 5% комиссии.
+                Наблюдатели ставят на любого игрока: пул угадавших делится пропорционально ставкам.
+                Досдача/дисконнект = поражение. Комната удалена до старта — все суммы возвращаются.
+            </div>
+        </section>
+
+        <!-- ================= МОДЕРАЦИЯ ================= -->
+        <section class="rules-card reveal" id="moderation">
+            <div class="card-head">
+                <span class="card-emoji spin-shield">🛡</span>
+                <h2>Модерация</h2>
+            </div>
+            <ul class="rules-list">
+                <li><b>🔑 Вход.</b> Пароль модератора выдаёт владелец сайта. Войдите через «🛡 Войти как модератор».</li>
+                <li><b>👁 Полномочия.</b> Кик и бан пользователей, удаление любой комнаты, вход в закрытые комнаты без пароля.</li>
+                <li><b>🚫 Ограничения.</b> Модератор не может кикнуть или забанить другого модератора. Забаненный не может зайти под своим именем.</li>
+                <li><b>🏆 Статистика.</b> Все действия пишутся в таблицу модераторов — лучший становится работником месяца.</li>
+            </ul>
+        </section>
+
+        <a class="rules-footer reveal" href="index.html">← Вернуться в PlayHub</a>
+    </main>
+
+    <script>
+        // фон: медленно плывущие светящиеся точки
+        (function () {
+            const c = document.getElementById("bg-anim");
+            if (!c || window.matchMedia("(prefers-reduced-motion: reduce)").matches) { if (c) c.remove(); return; }
+            const ctx = c.getContext("2d");
+            let w, h, dots;
+            function resize() {
+                w = c.width = innerWidth; h = c.height = innerHeight;
+                dots = Array.from({ length: 46 }, () => ({
+                    x: Math.random() * w, y: Math.random() * h,
+                    r: 1 + Math.random() * 2.2,
+                    vx: (Math.random() - .5) * .25, vy: (Math.random() - .5) * .25,
+                    hue: 250 + Math.random() * 80
+                }));
+            }
+            resize();
+            addEventListener("resize", resize);
+            (function frame() {
+                ctx.clearRect(0, 0, w, h);
+                for (const d of dots) {
+                    d.x += d.vx; d.y += d.vy;
+                    if (d.x < -20) d.x = w + 20; if (d.x > w + 20) d.x = -20;
+                    if (d.y < -20) d.y = h + 20; if (d.y > h + 20) d.y = -20;
+                    const g = ctx.createRadialGradient(d.x, d.y, 0, d.x, d.y, d.r * 6);
+                    g.addColorStop(0, "hsla(" + d.hue + ",90%,70%,.5)");
+                    g.addColorStop(1, "hsla(" + d.hue + ",90%,60%,0)");
+                    ctx.fillStyle = g;
+                    ctx.beginPath();
+                    ctx.arc(d.x, d.y, d.r * 6, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                requestAnimationFrame(frame);
+            })();
+        })();
+
+        // плавное появление карточек при скролле
+        (function () {
+            const items = document.querySelectorAll(".reveal");
+            if (!("IntersectionObserver" in window)) {
+                items.forEach(el => el.classList.add("in"));
+                return;
+            }
+            const io = new IntersectionObserver((entries) => {
+                entries.forEach((e, i) => {
+                    if (e.isIntersecting) {
+                        setTimeout(() => e.target.classList.add("in"), i * 90);
+                        io.unobserve(e.target);
+                    }
+                });
+            }, { threshold: 0.12 });
+            items.forEach(el => io.observe(el));
+        })();
+    </script>
+</body>
+</html>

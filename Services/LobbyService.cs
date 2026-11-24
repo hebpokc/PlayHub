@@ -11,6 +11,9 @@ public class LobbyService
 {
     private const int WinPrize = 100;
 
+    /// <summary>Публичный размер награды за победу (для рассылок хаба).</summary>
+    public static int WinPrizeAmount => WinPrize;
+
     /// <summary>Пароль модератора.</summary>
     public const string ModeratorPassword = "admin123";
 
@@ -121,11 +124,20 @@ public class LobbyService
                 return;
             }
 
-            var wasX = room.Game.PlayerXId == connectionId;
-            var wasO = room.Game.PlayerOId == connectionId;
-            if (wasX) room.Game.PlayerXId = "";
-            if (wasO) room.Game.PlayerOId = "";
-            if (wasX || wasO) ResetBoard(room);
+            var wasX2 = room.Game.PlayerXId == connectionId;
+            var wasO2 = room.Game.PlayerOId == connectionId;
+
+            // игрок ушёл во время матча — ему засчитывается поражение
+            if ((wasX2 || wasO2) && room.Game.IsStarted && !room.Game.IsFinished)
+            {
+                Forfeit(room, connectionId);
+            }
+            else
+            {
+                if (wasX2) room.Game.PlayerXId = "";
+                if (wasO2) room.Game.PlayerOId = "";
+                if (wasX2 || wasO2) ResetBoard(room); // уход наблюдателя не трогает матч
+            }
 
             // снимаем ставки ушедшего
             room.Bets.RemoveAll(b => b.ConnectionId == connectionId);
@@ -133,6 +145,35 @@ public class LobbyService
             // отсчёт 5 минут неактивности начинается с ухода последнего участника
             if (!room.HasMembers(Players.Values)) room.Touch();
         }
+    }
+
+    /// <summary>
+    /// Ушедший во время матча игрок проигрывает: победа сопернику,
+    /// расчёт призов и ставок как при обычной победе.
+    /// </summary>
+    private void Forfeit(Room room, string leaverId)
+    {
+        var winnerId = room.Game.PlayerXId == leaverId ? room.Game.PlayerOId : room.Game.PlayerXId;
+        var winnerSide = room.Game.PlayerXId == leaverId ? "O" : "X";
+        var winner = Players.GetValueOrDefault(winnerId);
+
+        room.Game.IsFinished = true;
+        room.Game.Winner = winnerSide;
+        room.Game.IsDraw = false;
+
+        if (winner != null)
+        {
+            _leaderboard.AddResult(winner.Name, "win");
+            _leaderboard.AddResult(GetName(leaverId), "loss");
+            _wallets.Add(winner.Name, WinPrize);
+        }
+
+        // ставки: угадавшие получают удвоение
+        foreach (var bet in room.Bets)
+            if (bet.Side == winnerSide) _wallets.Add(bet.Name, bet.Amount * 2);
+
+        room.Bets.Clear();
+        room.Touch();
     }
 
     // --------------------------------------------------------------- комнаты
@@ -228,9 +269,19 @@ public class LobbyService
 
             var wasX = room.Game.PlayerXId == connectionId;
             var wasO = room.Game.PlayerOId == connectionId;
-            if (wasX) room.Game.PlayerXId = "";
-            if (wasO) room.Game.PlayerOId = "";
-            if (wasX || wasO) ResetBoard(room); // уход наблюдателя не трогает матч
+
+            // игрок ушёл во время матча — ему засчитывается поражение
+            if ((wasX || wasO) && room.Game.IsStarted && !room.Game.IsFinished)
+            {
+                Forfeit(room, connectionId);
+            }
+            else
+            {
+                if (wasX) room.Game.PlayerXId = "";
+                if (wasO) room.Game.PlayerOId = "";
+                if (wasX || wasO) ResetBoard(room); // уход наблюдателя не трогает матч
+            }
+
             room.Bets.RemoveAll(b => b.ConnectionId == connectionId);
 
             // отсчёт 5 минут неактивности начинается с ухода последнего участника
@@ -249,7 +300,45 @@ public class LobbyService
     {
         if (!Rooms.TryRemove(roomId, out var room)) return null;
 
-        _mines.RefundRoom(room);
+        // удаляемая комната: уходящим игрокам — поражение, несыгранные деньги — возврат
+        if (room.GameType == "minesweeper")
+        {
+            _mines.RefundRoom(room);
+        }
+        else if (room.Game.IsStarted && !room.Game.IsFinished)
+        {
+            // матч шёл — хосту, сдавшему комнату, поражение; сопернику победа
+            lock (room.Sync)
+            {
+                var hostId = room.HostConnectionId;
+                var otherId = room.Game.PlayerXId == hostId ? room.Game.PlayerOId : room.Game.PlayerXId;
+                var other = Players.GetValueOrDefault(otherId);
+
+                _leaderboard.AddResult(GetName(hostId), "loss");
+                if (other != null)
+                {
+                    _leaderboard.AddResult(other.Name, "win");
+                    _wallets.Add(other.Name, WinPrize);
+                }
+
+                // ставки: угадавшие на победителя получают ×2
+                var winnerSide = room.Game.PlayerXId == otherId ? "X" : "O";
+                foreach (var b in room.Bets.Where(b => b.Side == winnerSide))
+                    _wallets.Add(b.Name, b.Amount * 2);
+                room.Bets.Clear();
+
+                room.Game.IsFinished = true;
+            }
+        }
+        else
+        {
+            // матча не было — ставки просто возвращаем
+            lock (room.Sync)
+            {
+                room.Bets.ForEach(b => _wallets.Add(b.Name, b.Amount));
+                room.Bets.Clear();
+            }
+        }
 
         foreach (var p in Players.Values)
         {

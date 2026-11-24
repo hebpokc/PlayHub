@@ -709,13 +709,34 @@ public class MinesweeperService
         return "ok";
     }
 
-    /// <summary>Возврат денег при удалении комнаты: несыгранный банк не сгорает.</summary>
+    /// <summary>
+    /// Удаление комнаты: если партия шла — всем играющим засчитывается поражение
+    /// (рекорды/лидерборд), банк не выплачивается. Несыгранные ante/ставки возвращаются.
+    /// </summary>
     public void RefundRoom(Room room)
     {
         if (room.GameType != "minesweeper") return;
         lock (room.Sync)
         {
             var g = room.Mine!;
+
+            // партия шла — всем участникам поражение, банк сгорает
+            if (g.IsStarted && !g.IsFinished)
+            {
+                foreach (var p in g.Participants.Where(p => !p.IsOut && !p.IsSpectating))
+                {
+                    if (g.Mode == MineMode.Solo)
+                    {
+                        _records.Record(p.Name, g.Difficulty.Key, p.Score, 0, won: false);
+                    }
+                    _leaderboard.AddResult(p.Name, "loss");
+                }
+                g.IsFinished = true;
+                g.TurnDeadline = null;
+                room.Bets.Clear();
+                return;
+            }
+
             // после окончания партии банк уже рассчитан — возвращать нечего
             if (g.IsFinished) { room.Bets.Clear(); return; }
 

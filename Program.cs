@@ -20,7 +20,15 @@ var app = builder.Build();
 
 // --- Middleware ----------------------------------------------------------
 app.UseDefaultFiles();
-app.UseStaticFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    // не даём браузеру залипнуть на старых js/css после деплоя:
+    // каждый запрос сверяется с сервером по ETag/Last-Modified
+    OnPrepareResponse = ctx =>
+    {
+        ctx.Context.Response.Headers.CacheControl = "no-cache";
+    }
+});
 
 // Когда LobbyService удаляет комнату (хост, модератор или авто-очистка
 // неактивных комнат) - сообщаем всем участникам и обновляем лобби.
