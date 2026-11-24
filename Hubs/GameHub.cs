@@ -461,6 +461,27 @@ public class GameHub : Hub
         await BroadcastRoom(room!.Id);
     }
 
+    /// <summary>Асим-риск: сапёр забирает накопленную долю банка и уходит.</summary>
+    public async Task MineCashOut()
+    {
+        var (player, room, error) = RequireMineRoom();
+        if (error != "") { await Clients.Caller.SendAsync("ServerError", error); return; }
+
+        var (result, sapperPayout, terroristPayout) = _mines.CashOut(room!, player!.ConnectionId);
+        if (result != MineActionResult.Ok)
+        {
+            await Clients.Caller.SendAsync("ServerError", result == MineActionResult.NotStarted
+                ? "Сначала откройте хотя бы одну клетку — забирать пока нечего."
+                : MineErrorText(result));
+            return;
+        }
+
+        await SendSystemMessage(
+            $"Сапёр: {player.Name} забрал {sapperPayout}💰 и ушёл с поля 🏃 — террористу {terroristPayout}💰 за риск");
+        await BroadcastRoom(room!.Id);
+        await AfterMineAction(room!);
+    }
+
     /// <summary>Сдаться.</summary>
     public async Task MineSurrender()
     {
@@ -549,14 +570,19 @@ public class GameHub : Hub
             winnerName = g.WinnerName,
             isDraw = g.IsDraw,
             payout = g.WinnerPayout,
-            explodedIndex = g.ExplodedIndex
+            explodedIndex = g.ExplodedIndex,
+            isCashOut = g.SapperPayout > 0 || g.TerroristPayout > 0,
+            sapperPayout = g.SapperPayout,
+            terroristPayout = g.TerroristPayout
         });
 
         await SendSystemMessage(g.IsDraw
             ? "Сапёр: ничья 🤝 — ставки возвращены"
-            : g.WinnerPayout > 0
-                ? $"Сапёр: {g.WinnerName} побеждает! 🎉 +{g.WinnerPayout} монет из банка"
-                : $"Сапёр: партия окончена, победитель — {g.WinnerName}");
+            : g.SapperPayout > 0 || g.TerroristPayout > 0
+                ? $"Сапёр: банк разделён 🤝 — сапёру {g.SapperPayout}💰, террористу {g.TerroristPayout}💰; победа за {g.WinnerName}"
+                : g.WinnerPayout > 0
+                    ? $"Сапёр: {g.WinnerName} побеждает! 🎉 +{g.WinnerPayout} монет из банка"
+                    : $"Сапёр: партия окончена, победитель — {g.WinnerName}");
 
         await RefreshBalances(room);
         await BroadcastLobby();

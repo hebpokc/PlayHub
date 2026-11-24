@@ -133,6 +133,15 @@ public class MineGameState
     /// <summary>Асим: номер партии для чередования ролей.</summary>
     public int RoundNumber { get; set; }
 
+    /// <summary>Асим: сколько раз сапёр успешно открыл клетку (растущая награда).</summary>
+    public int AsymClicks { get; set; }
+
+    /// <summary>Асим: выплата террористу при разделе банка после кэшаута сапёра.</summary>
+    public int TerroristPayout { get; set; }
+
+    /// <summary>Асим: выплата сапёру при кэшауте (для корректного баннера).</summary>
+    public int SapperPayout { get; set; }
+
     /// <summary>
     /// Одиночка: до этого момента место игрока зарезервировано за хостом.
     /// Null — резерв не действует (хост уже играет или время вышло).
@@ -231,6 +240,15 @@ public class MineSnapshot
 
     /// <summary>Асим: сколько мин уже расставил террорист.</summary>
     public int MinesPlacedByTerrorist { get; set; }
+
+    /// <summary>Асим: сколько раз сапёр успешно открыл клетку.</summary>
+    public int AsymClicks { get; set; }
+
+    /// <summary>Асим: сколько монет сапёр заберёт при кэшауте прямо сейчас.</summary>
+    public int CashOutPayout { get; set; }
+
+    /// <summary>Асим: выплата террористу при разделе банка (после кэшаута).</summary>
+    public int TerroristPayout { get; set; }
 
     /// <summary>Одиночка: место зарезервировано за хостом ещё N секунд.</summary>
     public int HostSeatSecondsLeft { get; set; }

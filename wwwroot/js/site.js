@@ -211,13 +211,20 @@ function registerHandlers() {
         const solo = mineState && mineState.mode === "solo";
         if (result.isDraw) {
             showBanner("Ничья!", "Сапёр: ничья — ставки возвращены.");
+        } else if (result.isCashOut) {
+            // банк разделён: сапёр забрал долю и ушёл, террористу — остаток
+            const iWon = result.winnerId === myId;
+            showBanner(iWon ? "Победа! 🎉" : `Победа за ${result.winnerName}!`,
+                `Сапёр забрал ${result.sapperPayout}💰 и ушёл с поля, террористу ${result.terroristPayout}💰 за риск.` +
+                (iWon ? " Ваш выигрыш зачислен на баланс." : " Реванш?"));
+            confetti(iWon ? 220 : 70);
         } else if (result.winnerId === myId) {
             showBanner("Победа! 🎉", result.payout > 0
                 ? `Вы получаете ${result.payout} монет из банка (комиссия хаба 5%).`
                 : "Поле разминировано — рекорд записан!");
             confetti(220);
         } else if (result.winnerName) {
-            showBanner(`${result.winnerName} победил!`, solo
+            showBanner(`Победа за ${result.winnerName}!`, solo
                 ? "Партия окончена — рекорд игрока записан в таблицу."
                 : result.payout > 0
                     ? `Банк ${result.payout} монет уходит победителю. Реванш?`
@@ -260,7 +267,7 @@ function registerHandlers() {
             showBanner("Ничья!", "Друзья победили дружбу. Ставки возвращены.");
         } else {
             const iWon = result.winner === mySide;
-            const title = iWon ? "Победа! 🎉" : `${result.winnerName} победил!`;
+            const title = iWon ? "Победа! 🎉" : `Победа за ${result.winnerName}!`;
             const text = iWon
                 ? `Награда за выигрыш: +${result.prize} монет. Результат записан в таблицу лидеров.`
                 : `Счёт открыт для ${result.winnerName}. Реванш?`;
@@ -798,6 +805,18 @@ function renderMine(s) {
     $("mine-ready-button").className = "btn big " + (me && me.isReady ? "ready" : "primary");
     $("mine-place-done").hidden = !placing;
     $("mine-surrender-button").hidden = !isPlayer || !s.isStarted || s.isFinished || s.isPlacing;
+
+    // асим-риск: кнопка «Забрать очки» — после первого успешного открытия
+    const canCashOut = s.mode === "asym" && myTurn && !s.isPlacing && !s.isFinished && (s.asymClicks || 0) > 0;
+    $("mine-cashout-button").hidden = !canCashOut;
+    if (canCashOut) {
+        const n = s.cashOutPayout;
+        const word = n % 10 === 1 && n % 100 !== 11 ? "монету"
+            : [2,3,4].includes(n % 10) && ![12,13,14].includes(n % 100) ? "монеты" : "монет";
+        $("mine-cashout-button").textContent = n > 0
+            ? `💰 Забрать ${n} ${word}`
+            : "💰 Забрать очки (пока 0💰)";
+    }
     $("mine-restart-button").hidden = !s.isFinished || !me;
 
     // --- статусная строка
@@ -842,11 +861,17 @@ function renderMine(s) {
             ? "Расставьте мины: <b>левый клик</b> — поставить/снять. Затем «Мины расставлены»."
             : `<b>${escapeHtml(s.turnName)}</b> расставляет мины…`;
     } else {
-        status.innerHTML = s.mode === "solo"
-            ? "Левый клик — открыть, правый — флажок. Первый ход безопасный."
-            : myTurn
-                ? "<b>Ваш ход!</b> Левый клик — открыть, правый — флажок."
-                : `Ходит <b>${escapeHtml(s.turnName)}</b>…`;
+        if (s.mode === "asym") {
+            status.innerHTML = myTurn
+                ? `<b>Ваш ход!</b> Клик №${(s.asymClicks || 0) + 1} · забрать сейчас: <b>${s.cashOutPayout}💰</b>. Чем дальше — тем больше доля банка, но мина заберёт всё.`
+                : `<b>${escapeHtml(s.turnName)}</b> рискует: открыто клеток — ${s.asymClicks || 0}, может забрать ${s.cashOutPayout}💰…`;
+        } else {
+            status.innerHTML = s.mode === "solo"
+                ? "Левый клик — открыть, правый — флажок. Первый ход безопасный."
+                : myTurn
+                    ? "<b>Ваш ход!</b> Левый клик — открыть, правый — флажок."
+                    : `Ходит <b>${escapeHtml(s.turnName)}</b>…`;
+        }
     }
 
     // --- счёт под полем
@@ -1030,6 +1055,13 @@ $("mine-ready-button").addEventListener("click", async () => {
 $("mine-place-done").addEventListener("click", async () => {
     if (!connection) return;
     try { await connection.invoke("MineFinishPlacing"); } catch (err) { console.error(err); }
+});
+
+$("mine-cashout-button").addEventListener("click", async () => {
+    if (!connection) return;
+    const payout = mineState ? mineState.cashOutPayout : 0;
+    if (!confirm(`Забрать ${payout}💰 и закончить партию? Остаток банка уйдёт террористу.`)) return;
+    try { await connection.invoke("MineCashOut"); } catch (err) { console.error(err); }
 });
 
 $("mine-surrender-button").addEventListener("click", async () => {

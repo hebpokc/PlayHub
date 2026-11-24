@@ -393,6 +393,17 @@ input[type="text"]:focus {
 }
 .btn.ghost { background: transparent; border-color: var(--panel-border); color: var(--muted); }
 .btn.ready { background: linear-gradient(135deg, #17b978, #3ddc97); box-shadow: 0 10px 25px rgba(61,220,151,.28); }
+.btn.cashout {
+    background: linear-gradient(135deg, #e8a13c, #ffd166);
+    color: #241a05;
+    box-shadow: 0 10px 25px rgba(255,209,102,.30);
+    animation: cashoutPulse 1.8s ease-in-out infinite;
+}
+@keyframes cashoutPulse {
+    0%, 100% { box-shadow: 0 10px 25px rgba(255,209,102,.30); }
+    50% { box-shadow: 0 10px 34px rgba(255,209,102,.60); }
+}
+@media (prefers-reduced-motion: reduce) { .btn.cashout { animation: none; } }
 .btn.big { width: 100%; padding: 15px; font-size: 16px; }
 .btn.small { padding: 7px 12px; font-size: 13px; }
 

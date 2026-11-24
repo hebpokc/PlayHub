@@ -208,6 +208,9 @@ public class MinesweeperService
         g.WinnerName = "";
         g.WinnerPayout = 0;
         g.ExplodedIndex = -1;
+        g.AsymClicks = 0;
+        g.TerroristPayout = 0;
+        g.SapperPayout = 0;
         g.StartedAt = DateTime.UtcNow;
         foreach (var p in g.Participants) { p.Score = 0; p.IsOut = false; p.IsSpectating = false; }
 
@@ -298,6 +301,7 @@ public class MinesweeperService
             // террорист знает, где мины — дальше он только наблюдает за разминированием
             foreach (var t in g.Participants.Where(p => p.IsTerrorist)) t.IsSpectating = true;
 
+            g.AsymClicks = 0;
             g.TurnId = sapper.ConnectionId;
             g.TurnDeadline = null; // сапёр играет без таймера хода
             g.StartedAt = DateTime.UtcNow;
@@ -372,6 +376,14 @@ public class MinesweeperService
             var points = g.Mode == MineMode.Pvp
                 ? (int)Math.Round(basePoints * SpeedMultiplier(spent))
                 : basePoints;
+
+            // асим: награда растёт с каждым успешным открытием —
+            // n-й клик даёт n × очки клетки, копится право на долю банка
+            if (g.Mode == MineMode.Asym)
+            {
+                g.AsymClicks++;
+                points *= g.AsymClicks;
+            }
             p.Score += points;
 
             // полное разминирование
@@ -400,6 +412,81 @@ public class MinesweeperService
             }
 
             return (MineActionResult.Ok, points, false);
+        }
+    }
+
+    /// <summary>
+    /// Асим-риск: доля банка сапёра при кэшауте. Каждый успешный клик открывает
+    /// право на 2% банка, максимум 90%. Уже после первого клика можно забрать
+    /// небольшой выигрыш, но «открыл одну и ушёл» даёт меньше внесённого ante.
+    /// </summary>
+    public static int CashOutShare(MineGameState g)
+    {
+        var share = Math.Min(0.9, g.AsymClicks * 0.02);
+        return (int)Math.Floor(g.Bank * (1 - HouseFee) * share);
+    }
+
+    /// <summary>
+    /// Асим-риск: сапёр забирает накопленную долю банка и завершает партию.
+    /// Террорист получает остаток банка (минус комиссия) — его награда за риск.
+    /// </summary>
+    public (MineActionResult Result, int SapperPayout, int TerroristPayout) CashOut(Room room, string connectionId)
+    {
+        lock (room.Sync)
+        {
+            var g = room.Mine!;
+            if (g.Mode != MineMode.Asym) return (MineActionResult.NotParticipant, 0, 0);
+            var p = g.Find(connectionId);
+            if (p == null || p.IsOut || p.IsSpectating) return (MineActionResult.NotParticipant, 0, 0);
+            if (!g.IsStarted || g.IsPlacing) return (MineActionResult.NotStarted, 0, 0);
+            if (g.IsFinished) return (MineActionResult.Finished, 0, 0);
+            if (g.AsymClicks == 0) return (MineActionResult.NotStarted, 0, 0);
+
+            var sapperShare = CashOutShare(g);
+            var bank = g.Bank;
+            var terrorist = g.Participants.First(x => x.IsTerrorist);
+            var netBank = (int)Math.Floor(bank * (1 - HouseFee));
+            var terroristShare = Math.Max(0, netBank - sapperShare);
+
+            g.IsFinished = true;
+            g.FinishedAt = DateTime.UtcNow;
+            g.ElapsedSeconds = (int)(g.FinishedAt - g.StartedAt).TotalSeconds;
+            g.TurnDeadline = null;
+            g.IsDraw = false;
+            g.ExplodedIndex = -1;
+
+            // банк делится по долям: сапёр выиграл, если забрал больше террориста
+            var sapperWon = sapperShare >= terroristShare;
+            var winner = sapperWon ? p : terrorist;
+            g.WinnerId = winner.ConnectionId;
+            g.WinnerName = winner.Name;
+            g.WinnerPayout = sapperWon ? sapperShare : terroristShare;
+            g.TerroristPayout = terroristShare;
+            g.SapperPayout = sapperShare;
+
+            terrorist.IsSpectating = false;
+            if (sapperShare > 0) _wallets.Add(p.Name, sapperShare);
+            if (terroristShare > 0) _wallets.Add(terrorist.Name, terroristShare);
+
+            // ставки наблюдателей: пул делится между угадавшими (−5%)
+            var winners = room.Bets.Where(b => b.Side == winner.ConnectionId).ToList();
+            if (winners.Count > 0)
+            {
+                var pool = room.Bets.Sum(b => b.Amount);
+                var winnersSum = winners.Sum(b => b.Amount);
+                foreach (var bet in winners)
+                {
+                    var share = (int)Math.Floor(pool * (1 - HouseFee) * bet.Amount / winnersSum);
+                    if (share > 0) _wallets.Add(bet.Name, share);
+                }
+            }
+            room.Bets.Clear();
+
+            _leaderboard.AddResult(winner.Name, "win");
+            _leaderboard.AddResult(sapperWon ? terrorist.Name : p.Name, "loss");
+
+            room.Touch();
+            return (MineActionResult.Ok, sapperShare, terroristShare);
         }
     }
 
@@ -656,6 +743,9 @@ public class MinesweeperService
             g.WinnerName = "";
             g.WinnerPayout = 0;
             g.ExplodedIndex = -1;
+            g.AsymClicks = 0;
+            g.TerroristPayout = 0;
+            g.SapperPayout = 0;
             g.TurnId = "";
             g.TurnDeadline = null;
             // одиночка: место снова держится за хостом первые 10 секунд
@@ -891,6 +981,11 @@ public class MinesweeperService
                 Bank = g.Bank,
                 FlagsLeft = g.MineCount - g.Flagged.Count(f => f),
                 MinesPlacedByTerrorist = g.Mines.Count(m => m),
+                AsymClicks = g.AsymClicks,
+                CashOutPayout = g.Mode == MineMode.Asym && g.IsStarted && !g.IsFinished && !g.IsPlacing
+                    ? CashOutShare(g)
+                    : 0,
+                TerroristPayout = g.TerroristPayout,
                 HostSeatSecondsLeft = g.HostSeatReservedUntil is { } until && DateTime.UtcNow < until
                     ? (int)Math.Ceiling((until - DateTime.UtcNow).TotalSeconds)
                     : 0,
