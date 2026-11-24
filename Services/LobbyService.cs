@@ -104,6 +104,22 @@ public class LobbyService
     public Player? GetPlayer(string connectionId) =>
         Players.TryGetValue(connectionId, out var p) ? p : null;
 
+    /// <summary>
+    /// Перезаход игрока (новая вкладка/возврат со страницы правил) получает новый
+    /// connectionId. Если под этим именем был хост комнаты — перепривязываем хост
+    /// к новому соединению, чтобы имя не превращалось в «Гость» и права сохранились.
+    /// </summary>
+    public void RebindHosts(string connectionId, string playerName)
+    {
+        foreach (var room in Rooms.Values)
+        {
+            if (room.HostConnectionId == connectionId) continue;
+            if (!string.Equals(room.HostName, playerName, StringComparison.OrdinalIgnoreCase)) continue;
+            if (Players.ContainsKey(room.HostConnectionId)) continue; // старый хост ещё онлайн
+            lock (room.Sync) room.HostConnectionId = connectionId;
+        }
+    }
+
     public string GetName(string connectionId) =>
         Players.TryGetValue(connectionId, out var p) ? p.Name : "Гость";
 
@@ -197,6 +213,7 @@ public class LobbyService
             Id = Guid.NewGuid().ToString("N")[..8],
             Name = CleanRoomName(roomName),
             HostConnectionId = connectionId,
+            HostName = player?.Name ?? GetName(connectionId),
             Password = (password ?? "").Trim()
         };
         Rooms[room.Id] = room;
@@ -234,8 +251,9 @@ public class LobbyService
         var player = GetPlayer(connectionId);
         if (player == null) return "not-found";
 
-        // модератор проходит в любую комнату без пароля
-        if (r.Password != "" && !player.IsModerator && (password ?? "") != r.Password)
+        // модератор проходит в любую комнату без пароля; хост — в свою (перезаход)
+        var isOwnRoom = string.Equals(r.HostName, player.Name, StringComparison.OrdinalIgnoreCase);
+        if (r.Password != "" && !player.IsModerator && !isOwnRoom && (password ?? "") != r.Password)
             return "wrong-password";
 
         // за доской может сидеть только один X и один O — остальным можно смотреть
@@ -605,7 +623,7 @@ public class LobbyService
                         Id = r.Id,
                         Name = r.Name,
                         HostConnectionId = r.HostConnectionId,
-                        HostName = GetName(r.HostConnectionId),
+                        HostName = r.HostName != "" ? r.HostName : GetName(r.HostConnectionId),
                         PlayersCount = isMine
                             ? mine!.Participants.Count
                             : members.Count(p => p.Side == "X" || p.Side == "O"),
@@ -622,7 +640,10 @@ public class LobbyService
                         MineMode = mine?.Mode ?? "",
                         MineDifficulty = mine?.Difficulty.Key ?? "",
                         MineBank = isMine ? mine!.Bank + r.Bets.Sum(b => b.Amount) : 0,
-                        Avatars = members.Take(4).Select(p => p.Avatar).ToList()
+                        Avatars = members.Take(4).Select(p => p.Avatar).ToList(),
+                        IdleDeleteSeconds = members.Count == 0
+                            ? Math.Max(1, (int)Math.Ceiling((RoomIdleLimit - (DateTime.UtcNow - r.LastActiveAt)).TotalSeconds))
+                            : 0
                     };
                 }
             }).ToList();

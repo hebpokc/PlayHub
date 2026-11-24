@@ -1,5 +1,2 @@
-test;675
-test2;575
-test3;500
-test4;500
-test5;500
+test1;500
+test2;500

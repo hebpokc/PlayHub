@@ -9,6 +9,10 @@ public class Room
     public string Name { get; set; } = "Комната";
     public string HostConnectionId { get; set; } = "";
 
+    /// <summary>Имя хоста: по нему хост восстанавливает комнату после перезахода
+    /// (например, со страницы правил) — соединение-то новое.</summary>
+    public string HostName { get; set; } = "";
+
     /// <summary>Пароль комнаты ("" — открытая). Модератор заходит без пароля.</summary>
     public string Password { get; set; } = "";
 
@@ -85,6 +89,9 @@ public class RoomDto
 
     /// <summary>Аватары участников комнаты (до 4) для живой карточки.</summary>
     public List<string> Avatars { get; set; } = new();
+
+    /// <summary>Секунд до автоудаления пустой комнаты (0 — в комнате есть люди).</summary>
+    public int IdleDeleteSeconds { get; set; }
 }
 
 /// <summary>Статистика модератора (для «работника месяца»).</summary>

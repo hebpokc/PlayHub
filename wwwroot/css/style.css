@@ -1733,4 +1733,11 @@ input[type="number"] {
 .room-avatars .p-av { width: 26px; height: 26px; font-size: 12px; margin-left: -7px; border-width: 1.5px; }
 .room-avatars .p-av:first-child { margin-left: 0; }
 .room-bank { font-size: 11px; color: #ffd76a; margin-top: 2px; font-variant-numeric: tabular-nums; }
+
+/* таймер автоудаления пустой комнаты */
+.room-idle { font-size: 11px; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.room-idle b { color: var(--text); font-weight: 600; }
+.room-idle.urgent { color: var(--danger); }
+.room-idle.urgent b { color: var(--danger); animation: idlePulse 1s ease-in-out infinite; }
+@keyframes idlePulse { 50% { opacity: .45; } }
 body.fx-off .room-live-dot { animation-play-state: paused; }

@@ -24,6 +24,7 @@ let myBalance = 0;
 let myAvatar = "😎";
 let isModerator = false;
 let lobbyState = null;      // последний снимок лобби
+let lobbySnapshotAt = 0;    // когда получен снимок — для локального отсчёта таймеров комнат
 let roomState = null;       // последний снимок комнаты
 let mineState = null;       // последний снимок сапёра
 let lastBoard = [];
@@ -182,6 +183,12 @@ async function startGuestConnection() {
                     joinStatus.className = "status";
                     joinStatus.textContent = "Возвращаемся в лобби…";
                     await connection.invoke("Join", myName, myModPassword, myAvatar);
+                    // возвращаемся и в комнату, если уходили из неё
+                    if (s.room) {
+                        lastRoomPassword = s.roomPass || null;
+                        try { await connection.invoke("JoinRoom", s.room, s.roomPass || null); }
+                        catch (e) { /* комнату удалили — останемся в лобби */ }
+                    }
                     return;
                 }
             } catch (e) { /* повреждённая метка — обычный вход */ }
@@ -200,7 +207,9 @@ document.querySelectorAll('a[href="rules.html"]').forEach((link) => {
     link.addEventListener("click", () => {
         if (!myId) return;
         sessionStorage.setItem("ph-session", JSON.stringify({
-            name: myName, mod: myModPassword, avatar: myAvatar, at: Date.now()
+            name: myName, mod: myModPassword, avatar: myAvatar, at: Date.now(),
+            room: roomState ? roomState.roomId : mineState ? mineState.roomId : null,
+            roomPass: lastRoomPassword
         }));
     });
 });
@@ -478,7 +487,8 @@ function registerHandlers() {
         renderBonusStatus(info.bonus);
         sfx("win");
         setTimeout(() => {
-            showScreen("lobby");
+            // если уже вернулись в комнату (возврат из правил) — не выкидываем в лобби
+            if (!roomState && !mineState) showScreen("lobby");
             btn.classList.remove("done");
             btn.querySelector(".lbl").textContent = "Войти →";
         }, 450);
@@ -514,6 +524,7 @@ function registerHandlers() {
     // лобби: комнаты + пользователи + лидеры
     connection.on("LobbyUpdated", (snapshot) => {
         lobbyState = snapshot;
+        lobbySnapshotAt = Date.now();
         renderLobby(snapshot);
     });
 
@@ -535,6 +546,7 @@ function registerHandlers() {
         roomState = null;
         mineState = null;
         mineFieldKey = "";
+        lastRoomPassword = null;
         showScreen("lobby");
     });
 
@@ -809,11 +821,13 @@ document.querySelectorAll("#tables-tabs .tab").forEach((tab) => {
 
 // ------------------------------------------------------------ пароль комнаты
 let pendingRoomId = "";
+let lastRoomPassword = null;   // пароль, с которым мы вошли в текущую комнату (для возврата из правил)
 
 $("room-password-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!connection || !pendingRoomId) return;
     const password = $("room-enter-password-input").value;
+    lastRoomPassword = password;
     try {
         await connection.invoke("JoinRoom", pendingRoomId, password);
     } catch (err) { console.error(err); }
@@ -965,7 +979,10 @@ function renderRooms(rooms) {
             `<div class="room-sub">хост: ${escapeHtml(r.hostName)} · 🎮: ${r.playersCount} · 👁️: ${r.spectatorsCount}</div>` +
             (isMine
                 ? (r.mineBank > 0 ? `<div class="room-bank">🏦 банк: ${r.mineBank}💰</div>` : "")
-                : (r.potX + r.potO > 0 ? `<div class="room-bank">🏦 банк ставок: ${r.potX + r.potO}💰</div>` : ""));
+                : (r.potX + r.potO > 0 ? `<div class="room-bank">🏦 банк ставок: ${r.potX + r.potO}💰</div>` : "")) +
+            (r.idleDeleteSeconds > 0
+                ? `<div class="room-idle" data-idle="${r.idleDeleteSeconds}">⏳ пустая — удалится через <b>${formatTime(r.idleDeleteSeconds)}</b></div>`
+                : "");
 
         // Live Room Card: аватары тех, кто уже в комнате
         if (r.avatars && r.avatars.length) {
@@ -1156,6 +1173,18 @@ function formatTime(totalSeconds) {
     const s = totalSeconds % 60;
     return `${m}:${String(s).padStart(2, "0")}`;
 }
+
+// локальный отсчёт таймеров удаления пустых комнат между снимками лобби
+setInterval(() => {
+    if (!lobbyState || !screens.lobby.classList.contains("active")) return;
+    const passed = Math.floor((Date.now() - lobbySnapshotAt) / 1000);
+    document.querySelectorAll("#rooms-list .room-idle").forEach((el) => {
+        const left = Math.max(0, Number(el.dataset.idle) - passed);
+        const b = el.querySelector("b");
+        if (b) b.textContent = left > 0 ? formatTime(left) : "удаляется…";
+        el.classList.toggle("urgent", left > 0 && left <= 60);
+    });
+}, 1000);
 
 // ============================================================ отрисовка: сапёр
 

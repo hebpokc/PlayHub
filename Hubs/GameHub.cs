@@ -58,6 +58,7 @@ public class GameHub : Hub
             : _avatars.Set(playerName, avatar);
 
         _lobby.AddPlayer(Context.ConnectionId, playerName, isModerator, playerAvatar);
+        _lobby.RebindHosts(Context.ConnectionId, playerName);
 
         await Clients.Caller.SendAsync("Welcome", new
         {
@@ -802,7 +803,8 @@ public class GameHub : Hub
             return;
         }
 
-        var isHost = room.HostConnectionId == Context.ConnectionId;
+        var isHost = room.HostConnectionId == Context.ConnectionId
+            || string.Equals(room.HostName, player.Name, StringComparison.OrdinalIgnoreCase);
         if (!isHost && !player.IsModerator)
         {
             await Clients.Caller.SendAsync("ServerError", "Удалять комнату может только её хост или модератор.");
