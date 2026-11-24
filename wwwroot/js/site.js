@@ -358,7 +358,9 @@ bindGameDescriptions("#game-chips .gchip", (name) => {
     if (name) sfx("tick");
 });
 bindGameDescriptions(".orbit-chip", (name) => {
-    $("orbit-cap").textContent = name || "PlayHub";
+    const cap = $("orbit-cap");
+    cap.textContent = name || "";
+    cap.hidden = !name;
     $("chip-desc").textContent = name ? (gameDescriptions[name] || defaultChipDesc) : defaultChipDesc;
     if (name) sfx("tick");
 });

@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PlayHub · игровая комната онлайн</title>
     <link rel="stylesheet" href="css/style.css" />
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8E%AE%3C/text%3E%3C/svg%3E" />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='1' y='1' width='62' height='62' rx='15' fill='%23151c3d' stroke='%23ffffff' stroke-opacity='.14' stroke-width='1.5'/%3E%3Crect x='17' y='14' width='6' height='36' rx='2.8' fill='%237c5cff'/%3E%3Cpath d='M25.4 15 L25.4 33 L43.4 24 Z' fill='%2338bdf8'/%3E%3C/svg%3E" sizes="any" />
 </head>
 <body>
 
@@ -37,10 +38,33 @@
                 <div class="portal-ring"></div>
                 <div class="portal-ring inner"></div>
                 <div class="portal-core">
-                    <span class="core-flip">
-                        <span class="core-face core-xo"><b class="logo-x">✕</b><b class="logo-o">◯</b></span>
-                        <span class="core-face core-mine">💣</span>
-                    </span>
+                    <svg class="core-mark" viewBox="-160 -160 320 320" role="img" aria-label="PlayHub — P = Play">
+                        <defs>
+                            <linearGradient id="pm-gStem" x1="0" y1="-100" x2="0" y2="100" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#7c5cff"/><stop offset="100%" stop-color="#4f46e5"/></linearGradient>
+                            <linearGradient id="pm-gPlay" x1="-34" y1="-96" x2="64" y2="-8" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#38bdf8"/><stop offset="100%" stop-color="#7c5cff"/></linearGradient>
+                            <linearGradient id="pm-gTrail" x1="0" y1="0" x2="0" y2="1" gradientUnits="objectBoundingBox"><stop offset="0%" stop-color="#fbbf24" stop-opacity=".9"/><stop offset="100%" stop-color="#fbbf24" stop-opacity="0"/></linearGradient>
+                            <clipPath id="pm-clipStem"><rect x="-70" y="-100" width="30" height="200" rx="14"/></clipPath>
+                            <filter id="pm-fPlay" x="-60%" y="-60%" width="220%" height="220%"><feDropShadow dx="0" dy="0" stdDeviation="9.6" flood-color="#7c5cff" flood-opacity="0.51"/></filter>
+                            <filter id="pm-fPulse" x="-120%" y="-120%" width="340%" height="340%"><feDropShadow dx="0" dy="0" stdDeviation="6.72" flood-color="#fbbf24" flood-opacity="0.51"/></filter>
+                        </defs>
+                        <g class="pm-sparks">
+                            <g transform="rotate(0) translate(128,0)"><circle r="4.5" fill="#38bdf8" opacity=".85"/><circle r="9" fill="#38bdf8" opacity=".18"/></g>
+                            <g transform="rotate(120) translate(128,0)"><circle r="4.5" fill="#f472b6" opacity=".85"/><circle r="9" fill="#f472b6" opacity=".18"/></g>
+                            <g transform="rotate(240) translate(128,0)"><circle r="4.5" fill="#fbbf24" opacity=".85"/><circle r="9" fill="#fbbf24" opacity=".18"/></g>
+                        </g>
+                        <rect x="-70" y="-100" width="30" height="200" rx="14" fill="url(#pm-gStem)"/>
+                        <rect x="-70" y="-100" width="30" height="200" rx="14" fill="none" stroke="#fff" stroke-opacity=".14" stroke-width="1.5"/>
+                        <g clip-path="url(#pm-clipStem)"><g class="pm-charge">
+                            <rect x="-70" y="0" width="30" height="70" fill="url(#pm-gTrail)"/>
+                            <circle cx="-55" cy="0" r="8.4" fill="#fbbf24" filter="url(#pm-fPulse)"/>
+                            <circle cx="-55" cy="0" r="3.9" fill="#fff"/>
+                        </g></g>
+                        <g transform="translate(-6,0) translate(-2,-52) translate(2,52)"><g class="pm-breath">
+                            <path d="M -34 -96 L -34 -8 L 64 -52 Z" fill="url(#pm-gPlay)" stroke="url(#pm-gPlay)" stroke-width="14" stroke-linejoin="round" filter="url(#pm-fPlay)"/>
+                            <path d="M -34 -96 L -34 -8 L 64 -52 Z" fill="none" stroke="#fff" stroke-opacity=".2" stroke-width="1.5" stroke-linejoin="round"/>
+                            <path class="pm-flash" d="M -34 -96 L -34 -8 L 64 -52 Z" fill="#fff" stroke="#fff" stroke-width="14" stroke-linejoin="round" opacity="0"/>
+                        </g></g>
+                    </svg>
                 </div>
                 <div class="portal-comet"><i></i></div>
                 <div class="orbit o1"><span class="orbit-icon"><button class="orbit-chip" type="button" data-name="Крестики-нолики" tabindex="-1">🎮</button></span></div>
@@ -51,7 +75,7 @@
                 <div class="orbit o6"><span class="orbit-icon"><button class="orbit-chip" type="button" data-name="Ставки ×2" tabindex="-1">🎰</button></span></div>
                 <div class="orbit o7 rev"><span class="orbit-icon"><button class="orbit-chip" type="button" data-name="Монеты" tabindex="-1">💎</button></span></div>
                 <div class="orbit o8"><span class="orbit-icon"><button class="orbit-chip" type="button" data-name="Наблюдение" tabindex="-1">👁️</button></span></div>
-                <div class="orbit-cap" id="orbit-cap">PlayHub</div>
+                <div class="orbit-cap" id="orbit-cap" hidden></div>
             </div>
 
             <div class="join-right">
@@ -134,7 +158,28 @@
     <section id="screen-lobby" class="screen">
 
         <header class="topbar">
-            <div class="brand"><span class="brand-swap" aria-hidden="true"><span class="brand-face face-xo"><span class="logo-x">✕</span><span class="logo-o">◯</span></span><span class="brand-face face-mine">💣</span></span> PlayHub</div>
+            <div class="brand"><svg class="brand-mark amb" viewBox="-160 -160 320 320" aria-hidden="true">
+                <defs>
+                    <linearGradient id="bm-gStem" x1="0" y1="-100" x2="0" y2="100" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#7c5cff"/><stop offset="100%" stop-color="#4f46e5"/></linearGradient>
+                    <linearGradient id="bm-gPlay" x1="-34" y1="-96" x2="64" y2="-8" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#38bdf8"/><stop offset="100%" stop-color="#7c5cff"/></linearGradient>
+                    <linearGradient id="bm-gTrail" x1="0" y1="0" x2="0" y2="1" gradientUnits="objectBoundingBox"><stop offset="0%" stop-color="#fbbf24" stop-opacity=".9"/><stop offset="100%" stop-color="#fbbf24" stop-opacity="0"/></linearGradient>
+                    <clipPath id="bm-clipStem"><rect x="-70" y="-100" width="30" height="200" rx="14"/></clipPath>
+                    <filter id="bm-fPlay" x="-60%" y="-60%" width="220%" height="220%"><feDropShadow dx="0" dy="0" stdDeviation="5.6" flood-color="#7c5cff" flood-opacity="0.30"/></filter>
+                    <filter id="bm-fPulse" x="-120%" y="-120%" width="340%" height="340%"><feDropShadow dx="0" dy="0" stdDeviation="3.92" flood-color="#fbbf24" flood-opacity="0.30"/></filter>
+                </defs>
+                <rect x="-70" y="-100" width="30" height="200" rx="14" fill="url(#bm-gStem)"/>
+                <rect x="-70" y="-100" width="30" height="200" rx="14" fill="none" stroke="#fff" stroke-opacity=".14" stroke-width="1.5"/>
+                <g clip-path="url(#bm-clipStem)"><g class="pm-charge">
+                    <rect x="-70" y="0" width="30" height="70" fill="url(#bm-gTrail)"/>
+                    <circle cx="-55" cy="0" r="8.4" fill="#fbbf24" filter="url(#bm-fPulse)"/>
+                    <circle cx="-55" cy="0" r="3.9" fill="#fff"/>
+                </g></g>
+                <g transform="translate(-6,0) translate(-2,-52) translate(2,52)"><g class="pm-breath">
+                    <path d="M -34 -96 L -34 -8 L 64 -52 Z" fill="url(#bm-gPlay)" stroke="url(#bm-gPlay)" stroke-width="14" stroke-linejoin="round" filter="url(#bm-fPlay)"/>
+                    <path d="M -34 -96 L -34 -8 L 64 -52 Z" fill="none" stroke="#fff" stroke-opacity=".2" stroke-width="1.5" stroke-linejoin="round"/>
+                    <path class="pm-flash" d="M -34 -96 L -34 -8 L 64 -52 Z" fill="#fff" stroke="#fff" stroke-width="14" stroke-linejoin="round" opacity="0"/>
+                </g></g>
+            </svg> PlayHub</div>
             <div class="topbar-info">
                 <span class="chip"><i id="conn-dot" class="dot"></i> <span id="conn-text">подключение…</span></span>
                 <span class="chip">Онлайн: <b id="online-count">0</b></span>

@@ -239,43 +239,32 @@ code {
     inset: 0;
     display: grid;
     place-content: center;
-    font-size: clamp(44px, 5vw, 64px);
     animation: coreFloat 4.5s ease-in-out infinite;
 }
 
-/* ядро портала: ✕◯ сменяются миной сапёра (кроссфейд без наложения) */
-.core-flip {
-    position: relative;
-    display: inline-grid;
+/* ядро портала: знак P = Play (стойка-хаб, импульс-realtime, треугольник-play) */
+.core-mark {
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    width: 56%;
+    height: 56%;
+    overflow: visible;
 }
-.core-face {
-    grid-area: 1 / 1;
-    display: inline-flex;
-    gap: 14px;
-    align-items: center;
-    justify-content: center;
+.pm-charge { animation: pmCharge 2.4s cubic-bezier(.4,0,.4,1) infinite; }
+.pm-flash { animation: pmFlash 2.4s ease-out infinite; }
+.pm-breath { animation: pmBreath 4s ease-in-out infinite; }
+.pm-sparks { animation: pmSpin 26s linear infinite; }
+@keyframes pmCharge {
+    0% { transform: translateY(104px); opacity: 0; }
+    10% { opacity: 1; }
+    70% { transform: translateY(-104px); opacity: 1; }
+    80% { transform: translateY(-104px); opacity: 0; }
+    100% { transform: translateY(104px); opacity: 0; }
 }
-.core-face b { font-weight: 700; }
-.core-xo {
-    text-shadow: 0 0 26px rgba(56,225,255,.6), 0 0 40px rgba(255,179,71,.4);
-    animation: faceXO 7s ease-in-out infinite;
-}
-.core-mine {
-    filter: drop-shadow(0 0 22px rgba(255,107,129,.65));
-    animation: faceMine 7s ease-in-out infinite;
-}
-
-/* сначала видны ✕◯, потом мина; одновременная видимость исключена */
-@keyframes faceXO {
-    0%, 40% { opacity: 1; transform: scale(1); }
-    47%, 90% { opacity: 0; transform: scale(.6); }
-    97%, 100% { opacity: 1; transform: scale(1); }
-}
-@keyframes faceMine {
-    0%, 40% { opacity: 0; transform: scale(.6); }
-    47%, 90% { opacity: 1; transform: scale(1); }
-    97%, 100% { opacity: 0; transform: scale(.6); }
-}
+@keyframes pmFlash { 0%,66% { opacity: 0; } 76% { opacity: .85; } 94%,100% { opacity: 0; } }
+@keyframes pmBreath { 0%,100% { transform: scale(1); } 50% { transform: scale(1.03); } }
+@keyframes pmSpin { to { transform: rotate(360deg); } }
 
 @keyframes portalSpin { to { transform: rotate(360deg); } }
 @keyframes portalPulse {
@@ -365,7 +354,7 @@ code {
     background: linear-gradient(90deg, transparent, rgba(56,225,255,.9));
 }
 
-/* подпись под ядром: название игры при наведении на бокс */
+/* подпись под ядром: название игры при наведении на бокс (в покое скрыта) */
 .orbit-cap {
     position: absolute;
     left: 50%;
@@ -378,6 +367,7 @@ code {
     text-shadow: 0 0 14px rgba(56,225,255,.5);
     pointer-events: none;
 }
+.orbit-cap[hidden] { display: none; }
 
 @keyframes orbitSpin {
     from { transform: rotate(0deg); }
@@ -696,36 +686,9 @@ body.fx-off .btn.shine::after { animation-play-state: paused; }
 
 .a-hint { margin: 12px 0 0; font-size: 12px; color: var(--muted); }
 
-.logo-x { color: var(--x); }
-.logo-o { color: var(--o); }
-
-/* общий приём: ✕◯ и 💣 чередуются кроссфейдом (без наложения) */
-.logo-swap, .brand-swap {
-    position: relative;
-    display: inline-grid;
-    vertical-align: middle;
-}
-.logo-face, .brand-face {
-    grid-area: 1 / 1;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    white-space: nowrap;
-}
-.face-xo { animation: faceXO 7s ease-in-out infinite; }
-.face-mine {
-    letter-spacing: 0;
-    filter: drop-shadow(0 0 12px rgba(255,107,129,.6));
-    animation: faceMine 7s ease-in-out infinite;
-}
-.logo-swap .face-xo { text-shadow: 0 0 18px rgba(56,225,255,.45); }
-
-.brand-swap { font-size: 15px; margin-right: 2px; }
-.brand-swap .face-mine { font-size: 14px; }
-
 @media (prefers-reduced-motion: reduce) {
-    .face-xo, .core-xo { animation: none; opacity: 1; transform: none; }
-    .face-mine, .core-mine { animation: none; visibility: hidden; }
+    .pm-charge, .pm-flash, .pm-breath, .pm-sparks { animation: none; }
+    .pm-charge, .pm-flash { opacity: 0; }
 }
 
 .join-card h1 span#scramble-title { color: var(--text); }
@@ -761,8 +724,10 @@ input[type="text"]:focus {
     cursor: pointer;
     color: #fff;
     background: rgba(255,255,255,.10);
+    text-decoration: none;
     transition: transform .15s ease, box-shadow .2s ease, background .2s, opacity .2s;
 }
+a.btn { text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
 .btn:hover:not(:disabled) { transform: translateY(-2px); }
 .btn:active:not(:disabled) { transform: translateY(0) scale(.98); }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
@@ -804,6 +769,14 @@ input[type="text"]:focus {
     flex-wrap: wrap;
 }
 .brand { font-weight: 700; letter-spacing: .3px; }
+.brand-mark {
+    width: 30px;
+    height: 30px;
+    vertical-align: -9px;
+    margin-right: 4px;
+    overflow: visible;
+    filter: drop-shadow(0 0 8px rgba(124,92,255,.45));
+}
 .topbar-info { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
 .chip {

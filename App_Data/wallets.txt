@@ -1,2 +1,2 @@
 test1;500
-test2;500
+moder;500
